@@ -1,0 +1,289 @@
+         ORG   $800       ; VIDEO DECODER PROGRAM START
+
+                          ;
+                          ;
+                          ; VARIOUS EQUATES RELATING
+                          ; TO STORAGE AND RETRIEVAL
+                          ;
+                          ;
+
+HIRES1   EQU   $2000      ; HIRES PAGES 1 AND 2
+HIRES2   EQU   $4000
+
+UPDATE1  EQU   $6000      ; FRAME UPDATES 1 AND 2
+UPDATE2  EQU   $8000      ; *2 ONLY HOLDS ABOUT 5KB
+
+LN       EQU   $A00       ; LOCATION WHERE FRAME LENGTHS
+                          ; ARE STORED
+
+RDLO     EQU   $06        ; LOCATION IN MEMORY WE
+RDHI     EQU   $07        ; ARE READING FROM
+
+WRTLO    EQU   $08        ; PAGE LOCATION WE ARE
+WRTHI    EQU   $09        ; WRITING TO
+
+LNLO     EQU   $EC        ; FOR READING UPDATE LENGTHS
+LNHI     EQU   $ED
+
+STATE    EQU   $EB        ; HOLDS PROGRAM STATE
+
+                          ;
+                          ;
+                          ; EQUATES RELATING TO
+                          ; SYSTEM CALLS
+                          ;
+                          ;
+
+MLI      EQU   $BF00      ; PRODOS CALL
+OPEN     EQU   $C8        ; MLI OPEN FILE
+READ     EQU   $CA        ; MLI READ FILE
+SETPOS   EQU   $CE        ; MLI SET POSITION IN FILE
+CLOSE    EQU   $CC        ; MLI CLOSE FILE
+
+PRNTA    EQU   $FDDA      ; PRINT ACCUMULATOR
+CROUT    EQU   $FD8E      ; OUTPUT CARRIAGE RETURN
+
+                          ;
+                          ;
+                          ; MAIN PROGRAM AREA
+                          ;
+                          ;
+
+START    STA   $C057
+         STA   $C050
+         JSR   OPNFILE
+         LDY   #0
+
+INIT     LDA   #0         ; PUT JUST A 'SKIP FRAME' IN UPDATE2
+         STA   UPDATE2
+         STA   UPDATE2+1
+         STA   UPDATE2+2
+
+         LDA   #1
+         STA   STATE      ; SET STATE = 1
+
+         JSR   LDFRAME1
+         JSR   LDLNS
+
+         LDA   #<LN       ; INIT READ BYTES FOR UPDATE LENGTH
+         STA   LNLO
+         LDA   #>LN
+         STA   LNHI
+
+         STA   $C054
+
+LOOP     JSR   UPDATE
+         JMP   LOOP
+
+                          ;
+                          ;
+                          ; HIGH-LEVEL SUBROUTINES
+                          ;
+                          ;
+
+UPDATE   LDA   STATE      ; HANDLES UPDATING, SWITCHING FRAMES
+         BNE   :NOTZERO
+         JSR   WRTHR1
+         JSR   RDUP1
+         JSR   PROCUP
+         LDA   #1
+         STA   STATE
+         STA   $C054
+         JMP   :ENDSUB
+:NOTZERO LDA   #<UPDATE1  ; STATE = 1, READ NEXT FRAME TO UPD1
+         STA   RDPARS+2
+         LDA   #>UPDATE1
+         STA   RDPARS+3
+         JSR   NXTLN
+         JSR   RDFILE
+         JSR   WRTHR2
+         JSR   RDUP1
+         JSR   PROCUP
+         LDA   #0
+         STA   STATE
+         STA   $C055
+:ENDSUB  RTS
+
+LDFRAME1 LDA   #$00       ; LOAD FRAME 1 INTO HIRES 1 AND 2
+         STA   RDPARS+4   ; SETTING READ LENGTH
+         LDA   #$20
+         STA   RDPARS+5
+         LDA   #<HIRES1
+         STA   RDPARS+2   ; LOAD INTO HIRES 1
+         LDA   #>HIRES1
+         STA   RDPARS+3
+         JSR   RSTFILE
+         JSR   RDFILE
+         LDA   #<HIRES2   ; LOAD INTO HIRES 2
+         STA   RDPARS+2
+         LDA   #>HIRES2
+         STA   RDPARS+3
+         JSR   RSTFILE
+         JSR   RDFILE
+         RTS
+
+LDLNS    LDA   #$00       ; LOAD LIST OF UPDATE LENGTHS
+         STA   RDPARS+4
+         LDA   #$01
+         STA   RDPARS+5
+         LDA   #<LN
+         STA   RDPARS+2
+         LDA   #>LN
+         STA   RDPARS+3
+         JSR   RDFILE
+         RTS
+
+                          ;
+                          ;
+                          ; MID-LEVEL SUBROUTINES
+                          ;
+                          ;
+
+PROCUP   LDA   (RDLO),Y   ; PROCESS DIFFS, GAPS IN AN 'UPDATE' SECTION
+         BNE   :NOGAP     ; NOT ZERO, SO THERE'S NO GAP - WRITE CHANGE
+         LDY   #2
+         LDA   (RDLO),Y
+         BNE   :NOTEND    ; HI BYTE ISNT ZERO, CAN'T BE END
+         LDY   #1
+         LDA   (RDLO),Y
+         BEQ   :ENDSUB    ; ALL THREE BYTES ARE ZERO, END SUB
+:NOTEND  LDY   #0         ; HANDLE THE GAP IN WRITES
+         INC   RDLO
+         BNE   :NORO1
+         INC   RDHI
+:NORO1   LDA   WRTLO
+         CLC
+         ADC   (RDLO),Y
+         STA   WRTLO
+         INC   RDLO
+         BNE   :NORO2
+         INC   RDHI
+:NORO2   LDA   WRTHI
+         ADC   (RDLO),Y
+         STA   WRTHI
+         INC   RDLO
+         BNE   :NORO3
+         INC   RDHI
+:NORO3   JMP   PROCUP
+:NOGAP   STA   (WRTLO),Y
+         INC   WRTLO
+         BNE   :NORO4
+         INC   WRTHI
+:NORO4   INC   RDLO
+         BNE   :NORO5
+         INC   RDHI
+:NORO5   JMP   PROCUP
+:ENDSUB  LDY   #0
+         RTS
+
+                          ;
+                          ;
+                          ; LOW-LEVEL SUBROUTINES
+                          ;
+                          ;
+
+INCRD    INC   RDLO       ; INCREASE READ LOCATION
+         BNE   :NOROLL
+         INC   RDHI
+:NOROLL  RTS
+
+INCWRT   INC   WRTLO      ; INCREASE WRITE LOCATION
+         BNE   :NOROLL
+         INC   WRTHI
+:NOROLL  RTS
+
+RDUP1    LDA   #$60       ; BEGIN READING UPDATE1
+         STA   RDHI
+         LDA   #$00
+         STA   RDLO
+         RTS
+
+RDUP2    LDA   #$80       ; BEGIN READING UPDATE2
+         STA   RDHI
+         LDA   #$00
+         STA   RDLO
+         RTS
+
+WRTHR1   LDA   #$20       ; BEGIN WRITING HIRES1
+         STA   WRTHI
+         LDA   #$00
+         STA   WRTLO
+         RTS
+
+WRTHR2   LDA   #$40       ; BEGIN WRITING HIRES2
+         STA   WRTHI
+         LDA   #$00
+         STA   WRTLO
+         RTS
+
+NXTLN    LDA   (LNLO),Y   ; STORE UPDATE LENGTH IN RDPARS
+         STA   RDPARS+4
+         INC   LNLO
+         BNE   :NOROLL
+         INC   LNHI
+:NOROLL  LDA   (LNLO),Y
+         STA   RDPARS+5
+         INC   LNLO       ; SET UP NEXT READ
+         BNE   :NORO1
+         INC   LNHI
+:NORO1   RTS
+
+OPNFILE  JSR   MLI        ; OPEN VIDEO FILE
+         DFB   OPEN
+         DW    OPNPARS
+         BNE   ERROR
+         LDA   OPNPARS+5  ; STORE REF NUM
+         STA   RDPARS+1
+         STA   POSPARS+1
+         STA   CLSPARS+1
+         RTS
+
+RDFILE   JSR   MLI        ; READ VIDEO FILE
+         DFB   READ       ; (SET DKRDLN, DKSTORE FIRST)
+         DW    RDPARS
+         BNE   ERROR
+         RTS
+
+RSTFILE  JSR   MLI        ; RESET FILE MARK TO BEGINNING
+         DFB   SETPOS
+         DW    POSPARS
+         BNE   ERROR
+         RTS
+
+CLSFILE  JSR   MLI        ; CLOSE FILE
+         DFB   CLOSE
+         DW    CLSPARS
+         RTS
+
+ERROR    JSR   PRNTA
+         JSR   CROUT
+         BRK
+         RTS
+
+                          ;
+                          ;
+                          ; PARAMETER LISTS FOR FILE OPS
+                          ;
+                          ;
+
+OPNPARS  DFB   3          ; NUMER OF PARAMETERS FOR 'OPEN'
+         DW    FILENAME   ; POINTER TO NAME OF FILE
+         DW    $0C00      ; I/O BUFFER LOCATION
+         DS    1          ; REFERENCE NUMBER FOR FILE
+
+RDPARS   DFB   4          ; NUMBER OF PARAMETERS FOR 'READ'
+         DS    1          ; REF NUM
+         DS    2          ; LOCATION TO LOAD WITH DISK DATA
+         DS    2          ; HOW MUCH TO READ
+         DS    2          ; WHERE NUM BYTES TRANFERRED IS STORED
+
+POSPARS  DFB   2          ; NUMBER OF PARAMETERS FOR 'SET MARK'
+         DS    1          ; REF NUM
+         DFB   0          ; VALUE FOR MARK (ALWAYS BEGINNING OF FILE)
+         DFB   0
+         DFB   0          ; (COULD MAYBE USE 'DS 3')
+
+CLSPARS  DFB   1          ; NUMBER OF PARAMETERS FOR 'CLOSE'
+         DS    1          ; REF NUM
+
+FILENAME STR   "/PROJECTS/TESTFILE"
