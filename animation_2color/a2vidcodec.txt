@@ -1,3 +1,4 @@
+
          ORG   $800       ; VIDEO DECODER PROGRAM START
 
                           ;
@@ -13,7 +14,7 @@ HIRES2   EQU   $4000
 UPDATE1  EQU   $6000      ; FRAME UPDATES 1 AND 2
 UPDATE2  EQU   $8000      ; *2 ONLY HOLDS ABOUT 5KB
 
-LN       EQU   $A00       ; LOCATION WHERE FRAME LENGTHS
+LN       EQU   $B00       ; LOCATION WHERE FRAME LENGTHS
                           ; ARE STORED
 
 RDLO     EQU   $06        ; LOCATION IN MEMORY WE
@@ -139,19 +140,21 @@ LDLNS    LDA   #$00       ; LOAD LIST OF UPDATE LENGTHS
 
 PROCUP   LDA   (RDLO),Y   ; PROCESS DIFFS, GAPS IN AN 'UPDATE' SECTION
          BEQ   :ENDSUB    ; A ZERO INDICATES END OF UPDATE
-         BPL   :NOGAP     ; IF MSB (BIT 7) NOT SET, THIS IS A GAP
+         AND   #$80
+         BNE   :NOGAP     ; IF MSB (BIT 7) NOT SET, THIS IS A GAP
          LDA   WRTLO      ; INCREMENT WRITE LOCATION WITH GAP
          CLC
          ADC   (RDLO),Y
-	 STA   WRTLO
-	 LDA   WRTHI
-	 ADC   #0         ; ADD CARRY TO HIGH BYTE
-	 STA   WRTHI
-	 INC   RDLO
-	 BNE   :NORO1
+         STA   WRTLO
+         LDA   WRTHI
+         ADC   #0         ; ADD CARRY TO HIGH BYTE
+         STA   WRTHI
+         INC   RDLO
+         BNE   :NORO1
          INC   RDHI
 :NORO1   JMP   PROCUP
-:NOGAP   STA   (WRTLO),Y   ; WRITE UPDATED BYTE
+:NOGAP   LDA   (RDLO),Y
+         STA   (WRTLO),Y  ; WRITE UPDATED BYTE
          INC   WRTLO
          BNE   :NORO2
          INC   WRTHI
@@ -161,6 +164,7 @@ PROCUP   LDA   (RDLO),Y   ; PROCESS DIFFS, GAPS IN AN 'UPDATE' SECTION
 :NORO3   JMP   PROCUP
 :ENDSUB  LDY   #0
          RTS
+
                           ;
                           ;
                           ; LOW-LEVEL SUBROUTINES
@@ -271,4 +275,4 @@ POSPARS  DFB   2          ; NUMBER OF PARAMETERS FOR 'SET MARK'
 CLSPARS  DFB   1          ; NUMBER OF PARAMETERS FOR 'CLOSE'
          DS    1          ; REF NUM
 
-FILENAME STR   "/PROJECTS/TESTFILE"
+FILENAME STR   "/ANIMTEST/TESTFILE"

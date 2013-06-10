@@ -178,7 +178,7 @@ def getClosestColor(x,colorTuple):
     #green = (0x11,0x77,0x22) #'dark green'
     #black = (0x00,0x00,0x00)
 
-    hgrRGBtuple = {'blue': purple, 'orange': orange, 'black': black}
+    hgrRGBtuple = {'blue': blue, 'orange': orange, 'black': black}
     #hgrRGB = {'blue': 0x14cffd, 'orange': 0xff6a3c, 'purple': 0xff44fd, 'green': 0x14f53c, 'black': 0x000000}
 
     oddColors = {'orange': orange, 'black': black}
@@ -199,7 +199,7 @@ def getClosestColor(x,colorTuple):
                 mindist = dist
                 mincolor = color
 
-        return mincolor,lastblack,MSB
+        return mincolor
 
     if ( x % 2 == 0):
         #even pixel!
@@ -470,7 +470,7 @@ def updateMask(n):
             diff = 0
             for k in range(7):
                 colorDistance = sqrt(pow(pixcurr[x+k,y][0]-pixlast[x+k,y][0],2)+pow(pixcurr[x+k,y][1]-pixlast[x+k,y][1],2)+pow(pixcurr[x+k,y][2]-pixlast[x+k,y][2],2))
-                if ( colorDistance > 30 ):
+                if ( colorDistance > 40 ):
                     diff = diff + 1
             
             if diff > 1:
