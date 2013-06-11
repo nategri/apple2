@@ -42,6 +42,8 @@ WRITE    EQU   $CB        ; MLI WRITE FILE
 SETPOS   EQU   $CE        ; MLI SET POSITION IN FILE
 CLOSE    EQU   $CC        ; MLI CLOSE FILE
 DESTROY  EQU   $C1        ; MLI DELETE FILE
+SETPFIX  EQU   $C6        ; MLI GET SYSTEM PREFIX
+GETPFIX  EQU   $C7        ; MLI SET SYSTEM PREFIX
 
 PRNTA    EQU   $FDDA      ; PRINT ACCUMULATOR
 CROUT    EQU   $FD8E      ; OUTPUT CARRIAGE RETURN
@@ -52,7 +54,11 @@ CROUT    EQU   $FD8E      ; OUTPUT CARRIAGE RETURN
                           ;
                           ;
 
-START    JSR   OPNFILE
+         JSR   SETPRE
+
+START    JSR   ASKFILE
+
+         JSR   OPNFILE
 
          LDY   #0
 
@@ -117,6 +123,24 @@ EXIT     JSR   CLSTEMP
                           ; HIGH-LEVEL SUBROUTINES
                           ;
                           ;
+
+ASKFILE  LDX   #0         ; ASK WITCH VIDEO FILE TO PLAY
+:LOOP1   INX              ; LOOP TO PRINT 'FILENAME:'
+         LDA   PROMPT,X
+         JSR   $FDF0
+         CPX   PROMPT
+         BLT   :LOOP1
+         LDA   #$A0       ; SET ' :' AS PROMPT
+         STA   $33
+         JSR   $FD6A      ; APPLE II GETLN ROUTINE
+         STX   FILENAME
+         LDX   #0
+:LOOP2   LDA   $200,X
+         STA   FILENAME+1,X
+         INX
+         CPX   FILENAME
+         BNE   :LOOP2
+         RTS
 
 UPDATE   LDA   STATE      ; HANDLES UPDATING, SWITCHING FRAMES
          BNE   :NOTZERO
@@ -269,8 +293,10 @@ NXTLN    LDA   (LNLO),Y   ; STORE UPDATE LENGTH IN RDPARST, RESET IF LAST FRAME
 CRETEMP  JSR   MLI
          DFB   CREATE
          DW    CREPARST
-         BNE   ERROR
-         RTS
+         BNE   :ERROR     ; FIXING A BAD BRANCH?
+         JMP   :ENDSUB
+:ERROR   JMP   ERROR
+:ENDSUB  RTS
 
 OPNFILE  JSR   MLI        ; OPEN VIDEO FILE
          DFB   OPEN
@@ -339,11 +365,21 @@ DESTEMP  JSR   MLI
          BNE   ERROR
          RTS
 
-ERROR    JSR   PRNTA
-         JSR   CROUT
-         BRK
+GETPRE   JSR   MLI
+         DFB   GETPFIX
+         DW    PFIXPARS
+         BNE   ERROR
          RTS
 
+SETPRE   JSR   MLI
+         DFB   SETPFIX
+         DW    PFIXPARS
+         BNE   ERROR
+         RTS
+
+ERROR    JSR   PRNTA
+         JSR   CROUT
+         JMP   $FA62
                           ;
                           ;
                           ; PARAMETER LISTS FOR FILE OPS
@@ -410,5 +446,11 @@ CLSPARST DFB   1          ; NUMBER OF PARAMETERS FOR 'CLOSE'
 DESPARST DFB   1
          DW    TEMPNAME
 
-FILENAME STR   "/ANIMTEST/TESTFILE"
+PFIXPARS DFB   1
+         DW    PFIXNAME
+
+FILENAME DS    50
+PFIXNAME STR   "/ANIMTEST"
 TEMPNAME STR   "/RAM/TEMP"
+
+PROMPT   STR   "FILENAME:"
