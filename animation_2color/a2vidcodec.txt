@@ -1,4 +1,3 @@
-
          ORG   $800       ; VIDEO DECODER PROGRAM START
 
                           ;
@@ -36,10 +35,13 @@ STATE    EQU   $EB        ; HOLDS PROGRAM STATE
                           ;
 
 MLI      EQU   $BF00      ; PRODOS CALL
+CREATE   EQU   $C0        ; MLI CREATE FILE
 OPEN     EQU   $C8        ; MLI OPEN FILE
 READ     EQU   $CA        ; MLI READ FILE
+WRITE    EQU   $CB        ; MLI WRITE FILE
 SETPOS   EQU   $CE        ; MLI SET POSITION IN FILE
 CLOSE    EQU   $CC        ; MLI CLOSE FILE
+DESTROY  EQU   $C1        ; MLI DELETE FILE
 
 PRNTA    EQU   $FDDA      ; PRINT ACCUMULATOR
 CROUT    EQU   $FD8E      ; OUTPUT CARRIAGE RETURN
@@ -50,9 +52,8 @@ CROUT    EQU   $FD8E      ; OUTPUT CARRIAGE RETURN
                           ;
                           ;
 
-START    STA   $C057
-         STA   $C050
-         JSR   OPNFILE
+START    JSR   OPNFILE
+
          LDY   #0
 
 INIT     LDA   #0         ; PUT JUST A 'SKIP FRAME' IN UPDATE2
@@ -69,10 +70,47 @@ INIT     LDA   #0         ; PUT JUST A 'SKIP FRAME' IN UPDATE2
          LDA   #>LN
          STA   LNHI
 
+         JSR   CRETEMP    ; CREATE TEMP VIDEO CACHE FILE
+         JSR   OPNTEMP
+
+         LDA   #$00       ; SET UP BUFFER THROUGH WHICH TO COPY TEMP CACHE
+         STA   FLOC
+         LDA   #$60
+         STA   FLOC+1
+         LDA   #$00
+         STA   FLEN
+         LDA   #$10
+         STA   FLEN+1
+
+TMPLOOP  JSR   RDFILE     ; COPY PART OF VIDEO FILE INTO CACHE
+         JSR   WRTEMP
+         LDA   #$00
+         CMP   FTRANS
+         BNE   TMPDONE
+         LDA   #$10
+         CMP   FTRANS+1
+         BEQ   TMPLOOP
+
+TMPDONE  JSR   CLSTEMP
+
+         JSR   CLSFILE
+
+         JSR   OPNTEMP
+
+         STA   $C057      ; INIT DISPLAY(?) -- INSPECT FURTHER
+         STA   $C050
+
          STA   $C054
 
-LOOP     JSR   UPDATE
+LOOP     JSR   UPDATE     ; MAIN LOOP
+         LDA   $C000      ; READ FOR KEYPRESS
+         BMI   EXIT
+         STA   $C010      ; CLEAR KEYBOARD STROBE
          JMP   LOOP
+
+EXIT     JSR   CLSTEMP
+         JSR   DESTEMP
+         JMP   $FA62      ; SWITCH TEXT
 
                           ;
                           ;
@@ -90,11 +128,11 @@ UPDATE   LDA   STATE      ; HANDLES UPDATING, SWITCHING FRAMES
          STA   $C054
          JMP   :ENDSUB
 :NOTZERO LDA   #<UPDATE1  ; STATE = 1, READ NEXT FRAME TO UPD1
-         STA   RDPARS+2
+         STA   RDPARST+2
          LDA   #>UPDATE1
-         STA   RDPARS+3
+         STA   RDPARST+3
          JSR   NXTLN
-         JSR   RDFILE
+         JSR   RDTEMP
          JSR   WRTHR2
          JSR   RDUP1
          JSR   PROCUP
@@ -104,31 +142,31 @@ UPDATE   LDA   STATE      ; HANDLES UPDATING, SWITCHING FRAMES
 :ENDSUB  RTS
 
 LDFRAME1 LDA   #$00       ; LOAD FRAME 1 INTO HIRES 1 AND 2
-         STA   RDPARS+4   ; SETTING READ LENGTH
+         STA   RDPARSF+4  ; SETTING READ LENGTH
          LDA   #$20
-         STA   RDPARS+5
+         STA   RDPARSF+5
          LDA   #<HIRES1
-         STA   RDPARS+2   ; LOAD INTO HIRES 1
+         STA   RDPARSF+2  ; LOAD INTO HIRES 1
          LDA   #>HIRES1
-         STA   RDPARS+3
+         STA   RDPARSF+3
          JSR   RSTFILE
          JSR   RDFILE
          LDA   #<HIRES2   ; LOAD INTO HIRES 2
-         STA   RDPARS+2
+         STA   RDPARSF+2
          LDA   #>HIRES2
-         STA   RDPARS+3
+         STA   RDPARSF+3
          JSR   RSTFILE
          JSR   RDFILE
          RTS
 
 LDLNS    LDA   #$00       ; LOAD LIST OF UPDATE LENGTHS
-         STA   RDPARS+4
+         STA   RDPARSF+4
          LDA   #$01
-         STA   RDPARS+5
+         STA   RDPARSF+5
          LDA   #<LN
-         STA   RDPARS+2
+         STA   RDPARSF+2
          LDA   #>LN
-         STA   RDPARS+3
+         STA   RDPARSF+3
          JSR   RDFILE
          RTS
 
@@ -205,43 +243,100 @@ WRTHR2   LDA   #$40       ; BEGIN WRITING HIRES2
          STA   WRTLO
          RTS
 
-NXTLN    LDA   (LNLO),Y   ; STORE UPDATE LENGTH IN RDPARS
-         STA   RDPARS+4
+NXTLN    LDA   (LNLO),Y   ; STORE UPDATE LENGTH IN RDPARST, RESET IF LAST FRAME
+         LDY   #1
+         CLC
+         ADC   (LNLO),Y
+         BNE   :NOTEND
+         LDA   #<LN       ; INIT READ BYTES FOR UPDATE LENGTH
+         STA   LNLO
+         LDA   #>LN
+         STA   LNHI
+         JSR   RSTTEMP
+:NOTEND  LDY   #0
+         LDA   (LNLO),Y
+         STA   RDPARST+4
          INC   LNLO
          BNE   :NOROLL
          INC   LNHI
 :NOROLL  LDA   (LNLO),Y
-         STA   RDPARS+5
+         STA   RDPARST+5
          INC   LNLO       ; SET UP NEXT READ
          BNE   :NORO1
          INC   LNHI
 :NORO1   RTS
 
+CRETEMP  JSR   MLI
+         DFB   CREATE
+         DW    CREPARST
+         BNE   ERROR
+         RTS
+
 OPNFILE  JSR   MLI        ; OPEN VIDEO FILE
          DFB   OPEN
-         DW    OPNPARS
+         DW    OPNPARSF
          BNE   ERROR
-         LDA   OPNPARS+5  ; STORE REF NUM
-         STA   RDPARS+1
-         STA   POSPARS+1
-         STA   CLSPARS+1
+         LDA   OPNPARSF+5  ; STORE REF NUM
+         STA   RDPARSF+1
+         STA   POSPARSF+1
+         STA   CLSPARSF+1
+         RTS
+
+OPNTEMP  JSR   MLI        ; OPEN TEMP FILE
+         DFB   OPEN
+         DW    OPNPARST
+         BNE   ERROR
+         LDA   OPNPARST+5  ; STORE REF NUM
+         STA   RDPARST+1
+         STA   WRPARST+1
+         STA   POSPARST+1
+         STA   CLSPARST+1
          RTS
 
 RDFILE   JSR   MLI        ; READ VIDEO FILE
          DFB   READ       ; (SET DKRDLN, DKSTORE FIRST)
-         DW    RDPARS
+         DW    RDPARSF
          BNE   ERROR
          RTS
 
-RSTFILE  JSR   MLI        ; RESET FILE MARK TO BEGINNING
+RDTEMP   JSR   MLI        ; READ TEMP FILE
+         DFB   READ       ; (SET DKRDLN, DKSTORE FIRST)
+         DW    RDPARST
+         BNE   ERROR
+         RTS
+
+WRTEMP   JSR   MLI
+         DFB   WRITE
+         DW    WRPARST
+         BNE   ERROR
+         RTS
+
+RSTFILE  JSR   MLI        ; RESET VIDEO FILE MARK TO BEGINNING
          DFB   SETPOS
-         DW    POSPARS
+         DW    POSPARSF
          BNE   ERROR
          RTS
 
-CLSFILE  JSR   MLI        ; CLOSE FILE
+RSTTEMP  JSR   MLI        ; RESET TEMP FILE MARK TO BEGINNING
+         DFB   SETPOS
+         DW    POSPARST
+         BNE   ERROR
+         RTS
+
+CLSFILE  JSR   MLI        ; CLOSE VIDEO FILE
          DFB   CLOSE
-         DW    CLSPARS
+         DW    CLSPARSF
+         RTS
+
+CLSTEMP  JSR   MLI        ; CLOSE TEMP FILE
+         DFB   CLOSE
+         DW    CLSPARST
+         RTS
+
+DESTEMP  JSR   MLI
+         DFB   DESTROY
+         DW    DESPARST
+         BNE   ERROR
          RTS
 
 ERROR    JSR   PRNTA
@@ -255,24 +350,65 @@ ERROR    JSR   PRNTA
                           ;
                           ;
 
-OPNPARS  DFB   3          ; NUMER OF PARAMETERS FOR 'OPEN'
+CREPARST DFB   7          ; NUMBER OF PARAMETERS FOR 'CREATE'
+         DW    TEMPNAME   ; POINT TO NAME OF FILE
+         DFB   $C3        ; ACCESS (D RN W R, ENABLED)
+         DFB   $06        ; FILE TYPE ($06 = BINARY)
+         DW    $00000     ; AUX TYPE (NOT NEEDED)
+         DFB   $01        ; THIS IS A FILE, NOT A DIRECTORY ($0D)
+         DW    $0000      ; UNUSED DATE STUFF
+         DW    $0000
+
+
+OPNPARSF DFB   3          ; NUMER OF PARAMETERS FOR 'OPEN'
          DW    FILENAME   ; POINTER TO NAME OF FILE
          DW    $0C00      ; I/O BUFFER LOCATION
          DS    1          ; REFERENCE NUMBER FOR FILE
 
-RDPARS   DFB   4          ; NUMBER OF PARAMETERS FOR 'READ'
+OPNPARST DFB   3          ; NUMER OF PARAMETERS FOR 'OPEN'
+         DW    TEMPNAME   ; POINTER TO NAME OF FILE
+         DW    $8000      ; I/O BUFFER LOCATION
+         DS    1          ; REFERENCE NUMBER FOR FILE
+
+
+RDPARSF  DFB   4          ; NUMBER OF PARAMETERS FOR 'READ'
+         DS    1          ; REF NUM
+FLOC     DS    2          ; LOCATION TO LOAD WITH DISK DATA
+FLEN     DS    2          ; HOW MUCH TO READ
+FTRANS   DS    2          ; WHERE NUM BYTES TRANFERRED IS STORED
+
+RDPARST  DFB   4          ; NUMBER OF PARAMETERS FOR 'READ'
          DS    1          ; REF NUM
          DS    2          ; LOCATION TO LOAD WITH DISK DATA
          DS    2          ; HOW MUCH TO READ
          DS    2          ; WHERE NUM BYTES TRANFERRED IS STORED
 
-POSPARS  DFB   2          ; NUMBER OF PARAMETERS FOR 'SET MARK'
+WRPARST  DFB   4          ; NUMBER OF PARAMETERS FOR 'WRITE'
+         DS    1          ; REF NUM
+         DW    $6000      ; POINTS TO BEGINNING OF DATA TO BE TRANSFERRED
+         DW    $1000      ; TRANSFER REQUEST, IN BYTES
+         DS    2          ; BYTES TRANSFERRED
+
+POSPARSF DFB   2          ; NUMBER OF PARAMETERS FOR 'SET MARK'
          DS    1          ; REF NUM
          DFB   0          ; VALUE FOR MARK (ALWAYS BEGINNING OF FILE)
          DFB   0
          DFB   0          ; (COULD MAYBE USE 'DS 3')
 
-CLSPARS  DFB   1          ; NUMBER OF PARAMETERS FOR 'CLOSE'
+POSPARST DFB   2          ; NUMBER OF PARAMETERS FOR 'SET MARK'
+         DS    1          ; REF NUM
+         DFB   0          ; VALUE FOR MARK (ALWAYS BEGINNING OF FILE)
+         DFB   0
+         DFB   0          ; (COULD MAYBE USE 'DS 3')
+
+CLSPARSF DFB   1          ; NUMBER OF PARAMETERS FOR 'CLOSE'
          DS    1          ; REF NUM
 
+CLSPARST DFB   1          ; NUMBER OF PARAMETERS FOR 'CLOSE'
+         DS    1          ; REF NUM
+
+DESPARST DFB   1
+         DW    TEMPNAME
+
 FILENAME STR   "/ANIMTEST/TESTFILE"
+TEMPNAME STR   "/RAM/TEMP"

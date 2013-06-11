@@ -470,7 +470,7 @@ def updateMask(n):
             diff = 0
             for k in range(7):
                 colorDistance = sqrt(pow(pixcurr[x+k,y][0]-pixlast[x+k,y][0],2)+pow(pixcurr[x+k,y][1]-pixlast[x+k,y][1],2)+pow(pixcurr[x+k,y][2]-pixlast[x+k,y][2],2))
-                if ( colorDistance > 40 ):
+                if ( colorDistance > 30 ):
                     diff = diff + 1
             
             if diff > 1:
