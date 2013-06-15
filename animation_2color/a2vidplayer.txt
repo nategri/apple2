@@ -10,10 +10,9 @@
 HIRES1   EQU   $2000      ; HIRES PAGES 1 AND 2
 HIRES2   EQU   $4000
 
-UPDATE1  EQU   $6000      ; FRAME UPDATES 1 AND 2
-UPDATE2  EQU   $8000      ; *2 ONLY HOLDS ABOUT 5KB
+DATA     EQU   $6000      ; LOCATION TO HOLD COMPRESSED DATA
 
-LN       EQU   $B00       ; LOCATION WHERE FRAME LENGTHS
+LN       EQU   $8400      ; LOCATION WHERE FRAME LENGTHS
                           ; ARE STORED
 
 RDLO     EQU   $06        ; LOCATION IN MEMORY WE
@@ -25,7 +24,7 @@ WRTHI    EQU   $09        ; WRITING TO
 LNLO     EQU   $EC        ; FOR READING UPDATE LENGTHS
 LNHI     EQU   $ED
 
-STATE    EQU   $EB        ; HOLDS PROGRAM STATE
+                          ; NOTE: ZP ADDRESS $EB IS FREE
 
                           ;
                           ;
@@ -62,13 +61,10 @@ START    JSR   ASKFILE
 
          LDY   #0
 
-INIT     LDA   #0         ; PUT JUST A 'SKIP FRAME' IN UPDATE2
-         STA   UPDATE2
-
-         LDA   #1
+INIT     LDA   #1
          STA   STATE      ; SET STATE = 1
 
-         JSR   LDFRAME1
+                          ;JSR LDFRAME1
          JSR   LDLNS
 
          LDA   #<LN       ; INIT READ BYTES FOR UPDATE LENGTH
@@ -106,7 +102,7 @@ TMPDONE  JSR   CLSTEMP
          STA   $C057      ; INIT DISPLAY(?) -- INSPECT FURTHER
          STA   $C050
 
-         STA   $C054
+         STA $C054
 
 LOOP     JSR   UPDATE     ; MAIN LOOP
          LDA   $C000      ; READ FOR KEYPRESS
@@ -145,52 +141,97 @@ ASKFILE  LDX   #0         ; ASK WITCH VIDEO FILE TO PLAY
 UPDATE   LDA   STATE      ; HANDLES UPDATING, SWITCHING FRAMES
          BNE   :NOTZERO
          JSR   WRTHR1
-         JSR   RDUP1
-         JSR   PROCUP
+         JSR   RDDAT
+         JSR   PROCDAT
          LDA   #1
          STA   STATE
          STA   $C054
          JMP   :ENDSUB
-:NOTZERO LDA   #<UPDATE1  ; STATE = 1, READ NEXT FRAME TO UPD1
-         STA   RDPARST+2
-         LDA   #>UPDATE1
-         STA   RDPARST+3
+:NOTZERO LDA   #<DATA     ; STATE = 1
+         STA   TLOC
+         LDA   #>DATA
+         STA   TLOC+1
          JSR   NXTLN
          JSR   RDTEMP
          JSR   WRTHR2
-         JSR   RDUP1
-         JSR   PROCUP
+         JSR   RDDAT
+         JSR   PROCDAT
          LDA   #0
          STA   STATE
          STA   $C055
 :ENDSUB  RTS
 
-LDFRAME1 LDA   #$00       ; LOAD FRAME 1 INTO HIRES 1 AND 2
-         STA   RDPARSF+4  ; SETTING READ LENGTH
+DECOMP   LDA   (RDLO),Y   ; BEGIN PROCESSING LZ77 COMPRESSED FRAME
+         BMI   :NOTFLAG   ; FLAGS ARE IN RANGE 0-127
+         BEQ   :ENDSUB
+         TAX              ; STORE LENGTH TO COPY IN X
+         INC   RDLO
+         BNE   :NOROLL
+         INC   RDHI
+:NOROLL  LDA   RDLO       ; SAVE CURRENT READ LOCATION TO STACK
+         PHA
+         LDA   RDHI
+         PHA
+         SEC              ; SUB FROM CURR WRITING POS TO GET TEMP READ LOC
+         LDA   WRTLO
+         SBC   (RDLO),Y
+         STA   RDLO
+         LDA   WRTHI
+         SBC   #0         ; CARRY IF NECESSARY
+         STA   RDHI
+:LOOP    LDA   (RDLO),Y
+         STA   (WRTLO),Y
+         INC   RDLO
+         BNE   :NORO1
+         INC   RDHI
+:NORO1   INC   WRTLO
+         BNE   :NORO2
+         INC   WRTHI
+:NORO2   DEX
+         BNE   :LOOP
+         PLA              ; RESTORE OLD READING POSITION
+         STA   RDHI
+         PLA
+         STA   RDLO
+         INC   RDLO
+         BNE   :NORO3
+         INC   RDHI
+:NORO3   JMP   DECOMP
+:NOTFLAG STA   (WRTLO),Y
+         INC   RDLO
+         BNE   :NORO4
+         INC   RDHI
+:NORO4   INC   WRTLO
+         BNE   :NORO5
+         INC   WRTHI
+:NORO5   JMP   DECOMP
+:ENDSUB  RTS
+
+MONMOV   LDA   #$00       ; ATTEMPTING TO COPY HIRES1 TO HIRES2 USING MONITOR
+         STA   $3C        ; SOURCE START LO
          LDA   #$20
-         STA   RDPARSF+5
-         LDA   #<HIRES1
-         STA   RDPARSF+2  ; LOAD INTO HIRES 1
-         LDA   #>HIRES1
-         STA   RDPARSF+3
-         JSR   RSTFILE
-         JSR   RDFILE
-         LDA   #<HIRES2   ; LOAD INTO HIRES 2
-         STA   RDPARSF+2
-         LDA   #>HIRES2
-         STA   RDPARSF+3
-         JSR   RSTFILE
-         JSR   RDFILE
+         STA   $3D        ; SOURCE START HI
+         LDA   #$FF
+         STA   $3E        ; SOURCE END LO
+         LDA   #$3F
+         STA   $3F        ; SOURCE END HI
+         LDA   #$00
+         STA   $42
+         LDA   #$40
+         STA   $43
+
+         JSR   $FE2C
+
          RTS
 
 LDLNS    LDA   #$00       ; LOAD LIST OF UPDATE LENGTHS
-         STA   RDPARSF+4
+         STA   FLEN
          LDA   #$01
-         STA   RDPARSF+5
+         STA   FLEN+1
          LDA   #<LN
-         STA   RDPARSF+2
+         STA   FLOC
          LDA   #>LN
-         STA   RDPARSF+3
+         STA   FLOC+1
          JSR   RDFILE
          RTS
 
@@ -199,33 +240,31 @@ LDLNS    LDA   #$00       ; LOAD LIST OF UPDATE LENGTHS
                           ; MID-LEVEL SUBROUTINES
                           ;
                           ;
-
-PROCUP   LDA   (RDLO),Y   ; PROCESS DIFFS, GAPS IN AN 'UPDATE' SECTION
+PROCDAT  LDX   CMPTYPE
+         DEX
+         BNE   :LOOP      ; TO BIG A JUMP FOR A BRANCH
+         JMP   DECOMP
+:LOOP    LDA   (RDLO),Y   ; PROCESS DIFFS, GAPS IN AN 'UPDATE' SECTION
+         BMI   :NOGAP     ; IF SIGN (BIT 7) IS SET, THIS ISN'T A GAP
          BEQ   :ENDSUB    ; A ZERO INDICATES END OF UPDATE
-         AND   #$80
-         BNE   :NOGAP     ; IF MSB (BIT 7) NOT SET, THIS IS A GAP
-         LDA   WRTLO      ; INCREMENT WRITE LOCATION WITH GAP
-         CLC
-         ADC   (RDLO),Y
+         CLC              ; INCREMENT WRITE LOCATION WITH GAP
+         ADC   WRTLO
          STA   WRTLO
-         LDA   WRTHI
-         ADC   #0         ; ADD CARRY TO HIGH BYTE
-         STA   WRTHI
-         INC   RDLO
+         BCC   :NOCAR
+         INC   WRTHI
+:NOCAR   INC   RDLO
          BNE   :NORO1
          INC   RDHI
-:NORO1   JMP   PROCUP
-:NOGAP   LDA   (RDLO),Y
-         STA   (WRTLO),Y  ; WRITE UPDATED BYTE
+:NORO1   JMP   :LOOP
+:NOGAP   STA   (WRTLO),Y  ; WRITE UPDATED BYTE
          INC   WRTLO
          BNE   :NORO2
          INC   WRTHI
 :NORO2   INC   RDLO
          BNE   :NORO3
          INC   RDHI
-:NORO3   JMP   PROCUP
-:ENDSUB  LDY   #0
-         RTS
+:NORO3   JMP   :LOOP
+:ENDSUB  RTS
 
                           ;
                           ;
@@ -233,25 +272,9 @@ PROCUP   LDA   (RDLO),Y   ; PROCESS DIFFS, GAPS IN AN 'UPDATE' SECTION
                           ;
                           ;
 
-INCRD    INC   RDLO       ; INCREASE READ LOCATION
-         BNE   :NOROLL
-         INC   RDHI
-:NOROLL  RTS
-
-INCWRT   INC   WRTLO      ; INCREASE WRITE LOCATION
-         BNE   :NOROLL
-         INC   WRTHI
-:NOROLL  RTS
-
-RDUP1    LDA   #$60       ; BEGIN READING UPDATE1
+RDDAT    LDA   #>DATA     ; BEGIN READING 'DATA' MEMORY
          STA   RDHI
-         LDA   #$00
-         STA   RDLO
-         RTS
-
-RDUP2    LDA   #$80       ; BEGIN READING UPDATE2
-         STA   RDHI
-         LDA   #$00
+         LDA   #<DATA
          STA   RDLO
          RTS
 
@@ -279,13 +302,22 @@ NXTLN    LDA   (LNLO),Y   ; STORE UPDATE LENGTH IN RDPARST, RESET IF LAST FRAME
          JSR   RSTTEMP
 :NOTEND  LDY   #0
          LDA   (LNLO),Y
-         STA   RDPARST+4
+         STA   TLEN
          INC   LNLO
          BNE   :NOROLL
          INC   LNHI
 :NOROLL  LDA   (LNLO),Y
-         STA   RDPARST+5
-         INC   LNLO       ; SET UP NEXT READ
+         STA   TLEN+1
+         BMI   :LZ        ; IF HIGH BIT NOT SET, THIS IS A FRAMEDIFF
+         LDA   #0         ; ELSE, IT'S LZ77 ENCODED
+         STA   CMPTYPE
+         JMP   :ENDSUB
+:LZ      LDA   #1
+         STA   CMPTYPE
+         LDA   TLEN+1
+         AND   #%01111111
+         STA   TLEN+1
+:ENDSUB  INC   LNLO       ; SET UP NEXT READ
          BNE   :NORO1
          INC   LNHI
 :NORO1   RTS
@@ -337,7 +369,7 @@ WRTEMP   JSR   MLI
          BNE   ERROR
          RTS
 
-RSTFILE  JSR   MLI        ; RESET VIDEO FILE MARK TO BEGINNING
+RSTFILE  JSR   MLI        ; RESET VID FILE MARK TO BEGINNING
          DFB   SETPOS
          DW    POSPARSF
          BNE   ERROR
@@ -415,8 +447,8 @@ FTRANS   DS    2          ; WHERE NUM BYTES TRANFERRED IS STORED
 
 RDPARST  DFB   4          ; NUMBER OF PARAMETERS FOR 'READ'
          DS    1          ; REF NUM
-         DS    2          ; LOCATION TO LOAD WITH DISK DATA
-         DS    2          ; HOW MUCH TO READ
+TLOC     DS    2          ; LOCATION TO LOAD WITH DISK DATA
+TLEN     DS    2          ; HOW MUCH TO READ
          DS    2          ; WHERE NUM BYTES TRANFERRED IS STORED
 
 WRPARST  DFB   4          ; NUMBER OF PARAMETERS FOR 'WRITE'
@@ -449,8 +481,12 @@ DESPARST DFB   1
 PFIXPARS DFB   1
          DW    PFIXNAME
 
-FILENAME DS    50
 PFIXNAME STR   "/ANIMTEST"
 TEMPNAME STR   "/RAM/TEMP"
 
 PROMPT   STR   "FILENAME:"
+
+STATE    DS    1
+CMPTYPE  DS    1          ; 0 FOR FRAMEDIFF, 1 FOR KEYFRAME
+
+FILENAME DS    50

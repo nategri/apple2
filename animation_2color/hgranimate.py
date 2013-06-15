@@ -2,9 +2,9 @@ from PIL import Image
 from math import *
 
 import sys
+import os
 
 import struct
-
 import binascii
 
 
@@ -21,7 +21,7 @@ def getStupidClosestColor(colorTuple):
 
 
 
-    hgrRGBtuple = {'blue': blue, 'orange': orange, 'black': black}
+    hgrRGBtuple = {'blue': blue, 'orange': orange, 'black': black, 'white':white}
     #hgrRGB = {'blue': 0x14cffd, 'orange': 0xff6a3c, 'purple': 0xff44fd, 'green': 0x14f53c, 'black': 0x000000}
 
     # have no idea where these colors came from (saving this for backup)
@@ -62,13 +62,13 @@ def stupidDither(framenum):
 
     global blue,orange,white,black
     
-    hgrRGBtuple = {'blue': blue, 'orange': orange, 'black': black}
+    hgrRGBtuple = {'blue': blue, 'orange': orange, 'black': black, 'white':white}
     
     im = Image.open('frame'+str(framenum)+'.jpg')
     
     pix = im.load()
 
-    hgrDisplayColor = {'blue': blue, 'orange': orange, 'black': black}
+    hgrDisplayColor = {'blue': blue, 'orange': orange, 'black': black, 'white':white}
 
     # hard coded to accept only native HGR size for now
     xMax = 280
@@ -509,6 +509,87 @@ def cmpBytes(byte1,byte2):
         diff = 8
     return diff
 
+def compress(file):
+    # simple implementation of the LZ77 compression algorithm
+    # input stream is 128-255 (high bits set)
+
+    # will use 255 'window' with max length of 127
+
+    # first 0-127 byte indicates length to copy
+    # second 0-255 byte is pointer to previous uncompressed data (e.g. how many bytes back to look)
+
+    infile = open(file,"rb").read()
+    #outfile = open(compfile,'r+b')
+
+    bytes = []
+
+    compbytes = []
+
+    for el in infile:
+        bytes.append(struct.unpack('B',el)[0])
+        
+    #compbytes.append(bytes[0])
+
+    i = 0
+
+    while i < bytes.__len__():
+        if i < 255:
+            winstart = 0
+        else:
+            winstart = i - 255
+
+        maxmatchlen = 0
+        maxmatchpt = 0 # this is abosolute! not relative! subtract before you store!
+
+        for pt in range(winstart,i):
+
+            length = 0
+
+            for j in range(128):
+
+                if (i+j) >= bytes.__len__():
+                    break
+
+                if bytes[i+j] == bytes[pt+j]:
+                    length = length + 1
+                
+                if length > maxmatchlen:
+                    maxmatchlen = length
+                    maxmatchpt = pt
+
+                if bytes[i+j] != bytes[pt+j]:
+                    break
+
+        if maxmatchlen > 2:
+            compbytes.append(maxmatchlen)
+            compbytes.append(i-maxmatchpt)
+            i = i + maxmatchlen
+        else:
+            compbytes.append(bytes[i])
+            i = i + 1
+
+    # signals end of data
+    compbytes.append(0)
+
+
+    #for i in range((compbytes.__len__()-10),compbytes.__len__()):
+        #print compbytes[i]
+
+    # store length as first two bytes
+    #loByte = compbytes.__len__()&0x00FF
+    #hiByte = compbytes.__len__()>>8
+    #outfile.write(struct.pack('B',loByte))
+    #outfile.write(struct.pack('B',hiByte))
+
+
+    #for el in compbytes:
+        #outfile.write(struct.pack('B',el))
+
+    #outfile.close()
+
+    return compbytes
+
+
 blue = (0x00,0x80,0xff)
 orange = (0xff,0x80,0x00)
 black = (0x00,0x00,0x00)
@@ -523,21 +604,48 @@ diffFrame = []
 # list of frame update lengths
 updateLengths = []
 
-# creat file which will fill first and second hires pages with the first frame
-stupidDither(0)
-palette = apple2Dither()
-saveA2Binary(sys.argv[1],palette)
+totalgaps = 0
+
+#
+# INITIALIZE BINARY VIDEO FILE
+#
 
 # fill in blank bytes where lengths will go
 f_binary = open(sys.argv[1],'ab')
-for i in range(256):
+
+for i in range(0,256):
     zeroByte = 0
     f_binary.write(struct.pack('B',zeroByte))
 
-### REMBER FIRST STORED DIFFS ARE COMPARED TO SECOND FRAME, NOT FIRST
-### FFFFIIIIXXXXX THIIIIIIIS^^^^^^^^^^
+# create and compress first image in animation
+# this is a keyframe
+stupidDither(0)
+palette = apple2Dither()
+saveA2Binary("keyframe",palette)
+keyFrame = compress("keyframe")
 
-totalgaps = 0
+for keyByte in keyFrame:
+    f_binary.write(struct.pack('B',keyByte))
+
+os.remove("keyframe")
+f_binary.close()
+
+
+f_binary = open(sys.argv[1],'r+b')
+f_binary.seek(0)
+keylength = keyFrame.__len__()
+keylength = keylength + 0x8000 # high bit on high byte being set tells it to use LZ77 decoding
+loByte = keylength&0x00FF
+hiByte = (keylength>>8)
+f_binary.write(struct.pack('B',loByte))
+f_binary.write(struct.pack('B',hiByte))
+f_binary.close()
+
+f_binary = open(sys.argv[1],'ab')
+
+#
+# LOOP THROUGH FRAMES
+#
 
 for n in range(int(sys.argv[2])):
     #print n
@@ -582,22 +690,34 @@ for n in range(int(sys.argv[2])):
                 gap = 0
             else:
                 gap = gap + 1
-            #diffFrame.append(currFrame[m])
-            # tell codec this is the end of the frame, which hires page to switch to
+
+        # tell codec this is the end of the frame
         diffFrame.append(0)
 
-        for frameByte in diffFrame:
-            f_binary.write(struct.pack('B',frameByte))
-            
-        updateLengths.append(diffFrame.__len__())
-        print diffFrame.__len__()
+        keyFrame = compress(sys.argv[1]+str(n))
+        keyframelength = keyFrame.__len__()
+
+        if keyframelength < diffFrame.__len__():
+            for keyByte in keyFrame:
+                f_binary.write(struct.pack('B',keyByte))
+
+            updateLengths.append(keyframelength+0x8000)
+
+        else:
+            for frameByte in diffFrame:
+                f_binary.write(struct.pack('B',frameByte))
+
+            updateLengths.append(diffFrame.__len__())
         
+        print "Frame diff length:" + str(diffFrame.__len__())
+        print "Keyframe length:" + str(keyframelength) + "\n"
+
 f_binary.close()
 
 # reopen in correct mode to fill in length section
 
 f_binary = open(sys.argv[1],"r+b")
-f_binary.seek(8192)
+f_binary.seek(2) # gotta miss the first keyframe length, right?
 
 for i in range(updateLengths.__len__()):
     loByte = updateLengths[i]&0x00FF
@@ -606,5 +726,3 @@ for i in range(updateLengths.__len__()):
     f_binary.write(struct.pack('B',hiByte))
 
 f_binary.close()
-
-print totalgaps
