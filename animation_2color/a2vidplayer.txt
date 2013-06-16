@@ -127,9 +127,7 @@ UPDATE   LDA   STATE      ; HANDLES UPDATING, SWITCHING FRAMES
          LDA   CMPTYPE
          BEQ   :NORMAL
 
-         JSR   WRTHR1     ; WHAT TO DO IF IT'S LZ77
-         JSR   RDDAT
-         JSR   PROCDAT
+         JSR   MYMOV      ; WHAT TO DO IF IT'S LZ77
 
          JMP   :SKIP
 :NORMAL  JSR   WRTHR1
@@ -261,6 +259,23 @@ MONMOV   LDA   #$00       ; COPY HIRES2 TO HIRES1 USING MONITOR
          JSR   $FE2C
 
          RTS
+
+MYMOV    LDY   #0
+         LDX   #$20
+         LDA   #$40
+         STA   :LOOP+2
+         LDA   #$20
+         STA   :MARK+2
+:LOOP    LDA   HIRES2,Y
+:MARK    STA   HIRES1,Y
+         INY
+         BNE   :LOOP
+         DEX
+         BEQ   :ENDSUB
+         INC   :LOOP+2
+         INC   :MARK+2
+         JMP   :LOOP
+:ENDSUB  RTS
 
 LDLNS    LDA   #$00       ; LOAD LIST OF UPDATE LENGTHS
          STA   FLEN
