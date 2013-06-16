@@ -641,10 +641,25 @@ def compress(file):
                 if bytes[i+j] != bytes[pt+j]:
                     break
 
+
         if maxmatchlen > 2:
-            compbytes.append(maxmatchlen)
-            compbytes.append(i-maxmatchpt)
-            i = i + maxmatchlen
+            # be clever, look for runs of zeroes
+            # should help improve decrunch time
+            zeroes = True
+            for k in range(0,maxmatchlen):
+                if (bytes[maxmatchpt+k] != 0x80):
+                    zeroes = False
+                    break
+
+            if zeroes:
+                compbytes.append(1)
+                compbytes.append(maxmatchlen)
+                i = i + maxmatchlen
+                #print "all zeroes!!"
+            else:
+                compbytes.append(maxmatchlen)
+                compbytes.append(i-maxmatchpt)
+                i = i + maxmatchlen
         else:
             compbytes.append(bytes[i])
             i = i + 1

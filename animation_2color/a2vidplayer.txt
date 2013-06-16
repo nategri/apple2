@@ -12,7 +12,7 @@ HIRES2   EQU   $4000
 
 DATA     EQU   $6000      ; LOCATION TO HOLD COMPRESSED DATA
 
-LN       EQU   $8400      ; LOCATION WHERE FRAME LENGTHS
+LN       EQU   $8800      ; LOCATION WHERE FRAME LENGTHS
                           ; ARE STORED
 
 RDLO     EQU   $06        ; LOCATION IN MEMORY WE
@@ -126,7 +126,11 @@ UPDATE   LDA   STATE      ; HANDLES UPDATING, SWITCHING FRAMES
          BNE   :NOTZERO
          LDA   CMPTYPE
          BEQ   :NORMAL
-         JSR   MONMOV
+
+         JSR   WRTHR1     ; WHAT TO DO IF IT'S LZ77
+         JSR   RDDAT
+         JSR   PROCDAT
+
          JMP   :SKIP
 :NORMAL  JSR   WRTHR1
          JSR   RDDAT
@@ -172,6 +176,35 @@ DECOMP   LDA   (RDLO),Y   ; BEGIN PROCESSING LZ77 COMPRESSED FRAME
          BMI   :NOTFLAG   ; FLAGS ARE IN RANGE 0-127
          BEQ   :ENDSUB
          TAX              ; STORE LENGTH TO COPY IN X
+
+         DEX              ; CHECK FOR FLAG THAT INDICATES RUN OF ZEROES
+         BNE   :NOTZERS
+         INC   RDLO
+         BNE   :NR
+         INC   RDHI
+:NR      LDA   (RDLO),Y
+         TAX
+         LDA   #$80
+
+:ZLOOP   STA   (WRTLO),Y
+         INY
+         DEX
+         BNE   :ZLOOP
+
+         TYA
+         CLC
+         ADC   WRTLO
+         STA   WRTLO
+         BCC   :NR2
+         INC   WRTHI
+:NR2     INC   RDLO
+         BNE   :NR3
+         INC   RDHI
+:NR3     LDY   #0
+         JMP   DECOMP
+
+:NOTZERS INX
+
          INC   RDLO
          BNE   :NOROLL
          INC   RDHI
@@ -183,20 +216,25 @@ DECOMP   LDA   (RDLO),Y   ; BEGIN PROCESSING LZ77 COMPRESSED FRAME
          STA   RDCMPLO
          BCS   :LOOP
          DEC   RDCMPHI
+
 :LOOP    LDA   (RDCMPLO),Y
          STA   (WRTLO),Y
-         INC   RDCMPLO
-         BNE   :NORO1
-         INC   RDCMPHI
-:NORO1   INC   WRTLO
-         BNE   :NORO2
-         INC   WRTHI
-:NORO2   DEX
+         INY
+         DEX
          BNE   :LOOP
-         INC   RDLO
-         BNE   :NORO3
+
+         TYA
+         CLC
+         ADC   WRTLO
+         STA   WRTLO
+         BCC   :NC
+         INC   WRTHI
+:NC      INC   RDLO
+         BNE   :NR4
          INC   RDHI
-:NORO3   JMP   DECOMP
+:NR4     LDY   #0
+         JMP   DECOMP
+
 :NOTFLAG STA   (WRTLO),Y
          INC   RDLO
          BNE   :NORO4
@@ -441,7 +479,7 @@ CREPARST DFB   7          ; NUMBER OF PARAMETERS FOR 'CREATE'
 
 OPNPARSF DFB   3          ; NUMER OF PARAMETERS FOR 'OPEN'
          DW    FILENAME   ; POINTER TO NAME OF FILE
-         DW    $0C00      ; I/O BUFFER LOCATION
+         DW    $8400      ; I/O BUFFER LOCATION
          DS    1          ; REFERENCE NUMBER FOR FILE
 
 OPNPARST DFB   3          ; NUMER OF PARAMETERS FOR 'OPEN'
