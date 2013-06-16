@@ -24,6 +24,9 @@ WRTHI    EQU   $09        ; WRITING TO
 LNLO     EQU   $EC        ; FOR READING UPDATE LENGTHS
 LNHI     EQU   $ED
 
+RDCMPLO  EQU   $EE        ; EXTRA READ 'HEADS' FOR LZ77 DECOMP
+RDCMPHI  EQU   $EF
+
                           ; NOTE: ZP ADDRESS $EB IS FREE
 
                           ;
@@ -53,19 +56,16 @@ CROUT    EQU   $FD8E      ; OUTPUT CARRIAGE RETURN
                           ;
                           ;
 
-         JSR   SETPRE
-
-START    JSR   ASKFILE
-
+INIT     JSR   SETPRE     ; SET PREFIX, ASK FOR VID FILE, OPEN
+         JSR   ASKFILE
          JSR   OPNFILE
 
          LDY   #0
 
-INIT     LDA   #1
+         LDA   #1
          STA   STATE      ; SET STATE = 1
 
-                          ;JSR LDFRAME1
-         JSR   LDLNS
+         JSR   LDLNS      ; LOAD LIST OF FRAME LENGTHS INTO MEMORY
 
          LDA   #<LN       ; INIT READ BYTES FOR UPDATE LENGTH
          STA   LNLO
@@ -74,35 +74,19 @@ INIT     LDA   #1
 
          JSR   CRETEMP    ; CREATE TEMP VIDEO CACHE FILE
          JSR   OPNTEMP
-
-         LDA   #$00       ; SET UP BUFFER THROUGH WHICH TO COPY TEMP CACHE
-         STA   FLOC
-         LDA   #$60
-         STA   FLOC+1
-         LDA   #$00
-         STA   FLEN
-         LDA   #$10
-         STA   FLEN+1
-
-TMPLOOP  JSR   RDFILE     ; COPY PART OF VIDEO FILE INTO CACHE
-         JSR   WRTEMP
-         LDA   #$00
-         CMP   FTRANS
-         BNE   TMPDONE
-         LDA   #$10
-         CMP   FTRANS+1
-         BEQ   TMPLOOP
-
-TMPDONE  JSR   CLSTEMP
+         JSR   MKTEMP
+         JSR   CLSTEMP
 
          JSR   CLSFILE
 
-         JSR   OPNTEMP
+         JSR   OPNTEMP    ; OPEN CACHE FILE
+
+         JSR   CLRHR1     ; CLEAR HIRES1
 
          STA   $C057      ; INIT DISPLAY(?) -- INSPECT FURTHER
          STA   $C050
 
-         STA $C054
+         STA   $C054
 
 LOOP     JSR   UPDATE     ; MAIN LOOP
          LDA   $C000      ; READ FOR KEYPRESS
@@ -140,10 +124,14 @@ ASKFILE  LDX   #0         ; ASK WITCH VIDEO FILE TO PLAY
 
 UPDATE   LDA   STATE      ; HANDLES UPDATING, SWITCHING FRAMES
          BNE   :NOTZERO
-         JSR   WRTHR1
+         LDA   CMPTYPE
+         BEQ   :NORMAL
+         JSR   MONMOV
+         JMP   :SKIP
+:NORMAL  JSR   WRTHR1
          JSR   RDDAT
          JSR   PROCDAT
-         LDA   #1
+:SKIP    LDA   #1
          STA   STATE
          STA   $C054
          JMP   :ENDSUB
@@ -161,6 +149,25 @@ UPDATE   LDA   STATE      ; HANDLES UPDATING, SWITCHING FRAMES
          STA   $C055
 :ENDSUB  RTS
 
+MKTEMP   LDA   #$00       ; LOAD FRAME UPDATES INTO RAMDISK CACHE FILE
+         STA   FLOC       ; SET UP BUFFER THROUGH WHICH TO COPY TEMP CACHE
+         LDA   #$60
+         STA   FLOC+1
+         LDA   #$00
+         STA   FLEN
+         LDA   #$10
+         STA   FLEN+1
+
+TMPLOOP  JSR   RDFILE     ; COPY PART OF VIDEO FILE INTO CACHE
+         JSR   WRTEMP     ; LOOP UNTIL FINISHED
+         LDA   #$00
+         CMP   FTRANS
+         BNE   :ENDSUB
+         LDA   #$10
+         CMP   FTRANS+1
+         BEQ   TMPLOOP
+:ENDSUB  RTS
+
 DECOMP   LDA   (RDLO),Y   ; BEGIN PROCESSING LZ77 COMPRESSED FRAME
          BMI   :NOTFLAG   ; FLAGS ARE IN RANGE 0-127
          BEQ   :ENDSUB
@@ -168,31 +175,24 @@ DECOMP   LDA   (RDLO),Y   ; BEGIN PROCESSING LZ77 COMPRESSED FRAME
          INC   RDLO
          BNE   :NOROLL
          INC   RDHI
-:NOROLL  LDA   RDLO       ; SAVE CURRENT READ LOCATION TO STACK
-         PHA
-         LDA   RDHI
-         PHA
+:NOROLL  LDA   WRTHI
+         STA   RDCMPHI
          SEC              ; SUB FROM CURR WRITING POS TO GET TEMP READ LOC
          LDA   WRTLO
          SBC   (RDLO),Y
-         STA   RDLO
-         LDA   WRTHI
-         SBC   #0         ; CARRY IF NECESSARY
-         STA   RDHI
-:LOOP    LDA   (RDLO),Y
+         STA   RDCMPLO
+         BCS   :LOOP
+         DEC   RDCMPHI
+:LOOP    LDA   (RDCMPLO),Y
          STA   (WRTLO),Y
-         INC   RDLO
+         INC   RDCMPLO
          BNE   :NORO1
-         INC   RDHI
+         INC   RDCMPHI
 :NORO1   INC   WRTLO
          BNE   :NORO2
          INC   WRTHI
 :NORO2   DEX
          BNE   :LOOP
-         PLA              ; RESTORE OLD READING POSITION
-         STA   RDHI
-         PLA
-         STA   RDLO
          INC   RDLO
          BNE   :NORO3
          INC   RDHI
@@ -207,17 +207,17 @@ DECOMP   LDA   (RDLO),Y   ; BEGIN PROCESSING LZ77 COMPRESSED FRAME
 :NORO5   JMP   DECOMP
 :ENDSUB  RTS
 
-MONMOV   LDA   #$00       ; ATTEMPTING TO COPY HIRES1 TO HIRES2 USING MONITOR
+MONMOV   LDA   #$00       ; COPY HIRES2 TO HIRES1 USING MONITOR
          STA   $3C        ; SOURCE START LO
-         LDA   #$20
+         LDA   #$40
          STA   $3D        ; SOURCE START HI
          LDA   #$FF
          STA   $3E        ; SOURCE END LO
-         LDA   #$3F
+         LDA   #$5F
          STA   $3F        ; SOURCE END HI
-         LDA   #$00
+         LDA   #$00       ; DEST LO
          STA   $42
-         LDA   #$40
+         LDA   #$20       ; DEST HI
          STA   $43
 
          JSR   $FE2C
@@ -235,6 +235,17 @@ LDLNS    LDA   #$00       ; LOAD LIST OF UPDATE LENGTHS
          JSR   RDFILE
          RTS
 
+CLRHR1   JSR   WRTHR1
+:LOOP    TYA
+         STA   (WRTLO),Y
+         INC   WRTLO
+         BNE   :NOROLL
+         INC   WRTHI
+:NOROLL  LDA   WRTHI
+         SEC
+         SBC   #$40
+         BNE   :LOOP
+         RTS
                           ;
                           ;
                           ; MID-LEVEL SUBROUTINES
