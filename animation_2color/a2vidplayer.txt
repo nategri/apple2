@@ -127,7 +127,7 @@ UPDATE   LDA   STATE      ; HANDLES UPDATING, SWITCHING FRAMES
          LDA   CMPTYPE
          BEQ   :NORMAL
 
-         JSR   MYMOV      ; WHAT TO DO IF IT'S LZ77
+         JSR   MYMOV      ; WHAT TO DO IF IT'S LZ77?
 
          JMP   :SKIP
 :NORMAL  JSR   WRTHR1
@@ -172,8 +172,21 @@ TMPLOOP  JSR   RDFILE     ; COPY PART OF VIDEO FILE INTO CACHE
 
 DECOMP   LDA   (RDLO),Y   ; BEGIN PROCESSING LZ77 COMPRESSED FRAME
          BMI   :NOTFLAG   ; FLAGS ARE IN RANGE 0-127
-         BEQ   :ENDSUB
          TAX              ; STORE LENGTH TO COPY IN X
+
+         TYA              ; IF WE'RE OUT OF LITERALS, UPDATE HEADS
+         CLC
+         ADC   RDLO
+         STA   RDLO
+         BCC   :N1
+         INC   RDHI
+:N1      TYA
+         CLC
+         ADC   WRTLO
+         STA   WRTLO
+         BCC   :N2
+         INC   WRTLO
+:N2      LDY   #0
 
          DEX              ; CHECK FOR FLAG THAT INDICATES RUN OF ZEROES
          BNE   :NOTZERS
@@ -202,6 +215,7 @@ DECOMP   LDA   (RDLO),Y   ; BEGIN PROCESSING LZ77 COMPRESSED FRAME
          JMP   DECOMP
 
 :NOTZERS INX
+         BEQ   :ENDSUB
 
          INC   RDLO
          BNE   :NOROLL
@@ -234,13 +248,11 @@ DECOMP   LDA   (RDLO),Y   ; BEGIN PROCESSING LZ77 COMPRESSED FRAME
          JMP   DECOMP
 
 :NOTFLAG STA   (WRTLO),Y
-         INC   RDLO
-         BNE   :NORO4
+         INY
+         BNE   DECOMP
          INC   RDHI
-:NORO4   INC   WRTLO
-         BNE   :NORO5
          INC   WRTHI
-:NORO5   JMP   DECOMP
+         JMP   DECOMP
 :ENDSUB  RTS
 
 MONMOV   LDA   #$00       ; COPY HIRES2 TO HIRES1 USING MONITOR
