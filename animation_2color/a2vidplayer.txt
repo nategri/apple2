@@ -127,7 +127,7 @@ UPDATE   LDA   STATE      ; HANDLES UPDATING, SWITCHING FRAMES
          LDA   CMPTYPE
          BEQ   :NORMAL
 
-         JSR   MYMOV      ; WHAT TO DO IF IT'S LZ77?
+         JSR   SPDMOV     ; WHAT TO DO IF IT'S LZ77?
 
          JMP   :SKIP
 :NORMAL  JSR   WRTHR1
@@ -566,3 +566,112 @@ STATE    DS    1
 CMPTYPE  DS    1          ; 0 FOR FRAMEDIFF, 1 FOR KEYFRAME
 
 FILENAME DS    50
+
+                          ;
+                          ;
+                          ; SPEEDCODE TYPE STUFF
+                          ;
+                          ;
+
+SPDMOV   LDY   #0
+
+:LOOP    LDA   $4000,Y
+         STA   $2000,Y
+
+         LDA   $4100,Y
+         STA   $2100,Y
+
+         LDA   $4200,Y
+         STA   $2200,Y
+
+         LDA   $4300,Y
+         STA   $2300,Y
+
+         LDA   $4400,Y
+         STA   $2400,Y
+
+         LDA   $4500,Y
+         STA   $2500,Y
+
+         LDA   $4600,Y
+         STA   $2600,Y
+
+         LDA   $4700,Y
+         STA   $2700,Y
+
+         LDA   $4800,Y
+         STA   $2800,Y
+
+         LDA   $4900,Y
+         STA   $2900,Y
+
+         LDA   $4A00,Y
+         STA   $2A00,Y
+
+         LDA   $4B00,Y
+         STA   $2B00,Y
+
+         LDA   $4C00,Y
+         STA   $2C00,Y
+
+         LDA   $4D00,Y
+         STA   $2D00,Y
+
+         LDA   $4E00,Y
+         STA   $2E00,Y
+
+         LDA   $4F00,Y
+         STA   $2F00,Y
+
+         LDA   $5000,Y
+         STA   $3000,Y
+
+         LDA   $5100,Y
+         STA   $3100,Y
+
+         LDA   $5200,Y
+         STA   $3200,Y
+
+         LDA   $5300,Y
+         STA   $3300,Y
+
+         LDA   $5400,Y
+         STA   $3400,Y
+
+         LDA   $5500,Y
+         STA   $3500,Y
+
+         LDA   $5600,Y
+         STA   $3600,Y
+
+         LDA   $5700,Y
+         STA   $3700,Y
+
+         LDA   $5800,Y
+         STA   $3800,Y
+
+         LDA   $5900,Y
+         STA   $3900,Y
+
+         LDA   $5A00,Y
+         STA   $3A00,Y
+
+         LDA   $5B00,Y
+         STA   $3B00,Y
+
+         LDA   $5C00,Y
+         STA   $3C00,Y
+
+         LDA   $5D00,Y
+         STA   $3D00,Y
+
+         LDA   $5E00,Y
+         STA   $3E00,Y
+
+         LDA   $5F00,Y
+         STA   $3F00,Y
+
+         INY
+         BNE   :NOTDONE
+         RTS
+:NOTDONE JMP   :LOOP
