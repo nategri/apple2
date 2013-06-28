@@ -1,5 +1,3 @@
-         ORG   $800       ; VIDEO DECODER PROGRAM START
-
                           ;
                           ;
                           ; VARIOUS EQUATES RELATING
@@ -11,9 +9,6 @@ HIRES1   EQU   $2000      ; HIRES PAGES 1 AND 2
 HIRES2   EQU   $4000
 
 DATA     EQU   $6000      ; LOCATION TO HOLD COMPRESSED DATA
-
-LN       EQU   $8800      ; LOCATION WHERE FRAME LENGTHS
-                          ; ARE STORED
 
 RDLO     EQU   $06        ; LOCATION IN MEMORY WE
 RDHI     EQU   $07        ; ARE READING FROM
@@ -27,7 +22,7 @@ LNHI     EQU   $ED
 RDCMPLO  EQU   $EE        ; EXTRA READ 'HEADS' FOR LZ77 DECOMP
 RDCMPHI  EQU   $EF
 
-                          ; NOTE: ZP ADDRESS $EB IS FREE
+TMP      EQU   $EB        ; NOTE: ZP ADDRESS $EB IS FREE
 
                           ;
                           ;
@@ -49,15 +44,64 @@ GETPFIX  EQU   $C7        ; MLI SET SYSTEM PREFIX
 
 PRNTA    EQU   $FDDA      ; PRINT ACCUMULATOR
 CROUT    EQU   $FD8E      ; OUTPUT CARRIAGE RETURN
+COUT     EQU   $FDF0
+CLRHOME  EQU   $FC58
 
                           ;
                           ;
-                          ; MAIN PROGRAM AREA
+                          ; MAIN PROGRAM START
                           ;
                           ;
 
-INIT     JSR   SETPRE     ; SET PREFIX, ASK FOR VID FILE, OPEN
+         ORG   $2000      ; RUNS AS PRODOS SYSTEM APPLICATION
+                          ; GOTTA COPY EVERYTHING DOWN TO $800
+         LDY   #0
+
+         LDA   #<PRGSTART
+         STA   RDLO
+         LDA   #>PRGSTART
+         STA   RDHI
+
+         LDA   #$00
+         STA   WRTLO
+         LDA   #$08
+         STA   WRTHI
+
+COPY     LDA   (RDLO),Y
+         STA   (WRTLO),Y
+
+         INC   RDLO
+         BNE   :NR
+         INC   RDHI
+:NR      INC   WRTLO
+         BNE   :NR1
+         INC   WRTHI
+:NR1     LDA   RDHI
+
+         CMP   #$30
+         BNE   COPY
+
+         JMP   $800
+
+PRGSTART EQU   *
+
+                          ;
+                          ;
+                          ; 'TRADITIONAL' START OF PROGRAM
+                          ;
+                          ;
+
+         ORG   $800       ; VIDEO DECODER PROGRAM START
+
+         JSR   SETPRE     ; SET PREFIX, ASK FOR VID FILE, OPEN
+
+INIT     JSR   CLRHOME
+
+         JSR   LSTDIR
+
          JSR   ASKFILE
+
+
          JSR   OPNFILE
 
          LDY   #0
@@ -96,7 +140,12 @@ LOOP     JSR   UPDATE     ; MAIN LOOP
 
 EXIT     JSR   CLSTEMP
          JSR   DESTEMP
-         JMP   $FA62      ; SWITCH TEXT
+         STA   $C051      ; SWITCH TEXT
+         STA   $C054      ; PAGE 1
+
+         STA   $C010      ; CLEAR KEY;
+
+         JMP   INIT
 
                           ;
                           ;
@@ -104,10 +153,96 @@ EXIT     JSR   CLSTEMP
                           ;
                           ;
 
+LSTDIR   LDA   #<DIRNAME  ; OPEN DIRECTORY FILE
+         STA   OPNPARSF+1
+         LDA   #>DIRNAME
+         STA   OPNPARSF+2
+         JSR   OPNFILE
+
+         LDA   #$00       ; LOAD IT'S DATA INTO MEMORY
+         STA   FLOC
+         LDA   #$60
+         STA   FLOC+1
+         LDA   #$00
+         STA   FLEN
+         LDA   #$10
+         STA   FLEN+1
+         JSR   RDFILE
+         JSR   CLSFILE
+
+         LDA   #$2B       ; SET INITIAL POSITION IN DATA
+         STA   RDLO
+         LDA   #$60
+         STA   RDHI
+
+         LDX   $6025      ; LOW BYTE OF FILE COUNT
+
+         LDA   #$0D       ; ENTRIES PER BLOCK
+         STA   TMP
+         DEC   TMP        ; COUNT DIRECTORY ENTRY?
+
+         JSR   CROUT
+
+:OLOOP   LDY   #0
+
+         LDA   RDLO       ; SET UP CMP FURTHER DOWN THE LINE
+         STA   :MK1+1
+         LDA   RDHI
+         STA   :MK1+2
+
+         LDA   (RDLO),Y
+         AND   #$F0
+         BEQ   :NACTIVE
+
+         LDA   (RDLO),Y   ; LOW PART OF THIS BYTE IS LENGTH
+         AND   #$0F       ; FIX IT TO WORK CORRECTLY AS STRING
+         STA   (RDLO),Y   ; WITH LENGTH PLACED FIRST
+
+         LDA   #$A0       ; SPACE BEFORE EACH LISTING
+         JSR   COUT
+
+
+:LOOP1   INY              ; PRINT FILE ENTRY
+         LDA   (RDLO),Y
+         ORA   #%10000000
+         JSR   COUT
+:MK1     CPY   $F000      ; PLACEHOLDER
+         BLT   :LOOP1
+
+         DEX              ; EXIT SUB IF WE'VE HIT THEM ALL
+         BEQ   :ENDSUB
+
+         JSR   CROUT
+
+:NACTIVE DEC   TMP        ; SEE IF WE'RE SWITCHING TO NEW BLOCK
+         BNE:  :SKIP
+
+         LDA   #$4
+         STA   RDLO
+         INC   RDHI
+
+         LDA   #$0D
+         STA   TMP
+
+         JMP   :OLOOP
+
+:SKIP    LDA   #$27       ; INCREMENT TO LOC OF NEXT FILE ENTRY
+         CLC
+         ADC   RDLO
+         STA   RDLO
+         BCC   :NR
+         INC   RDHI
+
+:NR      JMP   :OLOOP
+
+:ENDSUB  JSR   CROUT
+         JSR   CROUT
+         RTS
+
 ASKFILE  LDX   #0         ; ASK WITCH VIDEO FILE TO PLAY
 :LOOP1   INX              ; LOOP TO PRINT 'FILENAME:'
          LDA   PROMPT,X
-         JSR   $FDF0
+         JSR   COUT       ; DISPLAYS CHAR IN ACC
          CPX   PROMPT
          BLT   :LOOP1
          LDA   #$A0       ; SET ' :' AS PROMPT
@@ -120,6 +255,10 @@ ASKFILE  LDX   #0         ; ASK WITCH VIDEO FILE TO PLAY
          INX
          CPX   FILENAME
          BNE   :LOOP2
+         LDA   #<FILENAME
+         STA   OPNPARSF+1
+         LDA   #>FILENAME
+         STA   OPNPARSF+2
          RTS
 
 UPDATE   LDA   STATE      ; HANDLES UPDATING, SWITCHING FRAMES
@@ -558,6 +697,7 @@ PFIXPARS DFB   1
          DW    PFIXNAME
 
 PFIXNAME STR   "/ANIMTEST"
+DIRNAME  STR   "/ANIMTEST"
 TEMPNAME STR   "/RAM/TEMP"
 
 PROMPT   STR   "FILENAME:"
@@ -565,7 +705,11 @@ PROMPT   STR   "FILENAME:"
 STATE    DS    1
 CMPTYPE  DS    1          ; 0 FOR FRAMEDIFF, 1 FOR KEYFRAME
 
-FILENAME DS    50
+FILENAME DS    15
+
+LN       DS    512        ; WHERE FRAME LENGTHS ARE STORED
+                          ; WARNING: THIS WOULD CLOBBER SPEEDCODE
+                          ; ON BIG FILES
 
                           ;
                           ;

@@ -83,6 +83,22 @@ def genFrames(file,brightness,option):
             smalljpg.paste(imjpg,(35,24))
             smalljpg.save('frame'+str(i)+'.jpg')
 
+    if option == "tiny":
+        #resize the whole lot
+        for i in range(frames+1):
+            impng = Image.open('frame'+str(i)+'.png')
+            smallpng = Image.new("RGB",impng.size,(0,0,0))
+            impng = impng.resize((140,96))
+            smallpng.paste(impng,(70,48))
+            smallpng.save('frame'+str(i)+'.png')
+    
+            imjpg = Image.open('frame'+str(i)+'.jpg')
+            smalljpg = Image.new("RGB",imjpg.size,(0,0,0))
+            imjpg = imjpg.resize((140,96))
+            smalljpg.paste(imjpg,(70,48))
+            smalljpg.save('frame'+str(i)+'.jpg')
+
+
     return frames
 
 def getStupidClosestColor(colorTuple):
