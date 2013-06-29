@@ -8,7 +8,9 @@
 HIRES1   EQU   $2000      ; HIRES PAGES 1 AND 2
 HIRES2   EQU   $4000
 
-DATA     EQU   $6000      ; LOCATION TO HOLD COMPRESSED DATA
+KEYS     EQU   $7000
+
+DATA     EQU   $1000      ; LOCATION TO HOLD COMPRESSED DATA
 
 RDLO     EQU   $06        ; LOCATION IN MEMORY WE
 RDHI     EQU   $07        ; ARE READING FROM
@@ -23,6 +25,9 @@ RDCMPLO  EQU   $EE        ; EXTRA READ 'HEADS' FOR LZ77 DECOMP
 RDCMPHI  EQU   $EF
 
 TMP      EQU   $EB        ; NOTE: ZP ADDRESS $EB IS FREE
+
+RDKEYLO  EQU   $FA
+RDKEYHI  EQU   $FB
 
                           ;
                           ;
@@ -110,11 +115,17 @@ INIT     JSR   CLRHOME
          STA   STATE      ; SET STATE = 1
 
          JSR   LDLNS      ; LOAD LIST OF FRAME LENGTHS INTO MEMORY
+         JSR   LDKEYS     ; LOAD KEYFRAMES INTO MAIN BANK
 
          LDA   #<LN       ; INIT READ BYTES FOR UPDATE LENGTH
          STA   LNLO
          LDA   #>LN
          STA   LNHI
+
+         LDA   #<KEYS     ; INIT READ BYTES FOR KEYFRAMES
+         STA   RDKEYLO
+         LDA   #>KEYS
+         STA   RDKEYHI
 
          JSR   CRETEMP    ; CREATE TEMP VIDEO CACHE FILE
          JSR   OPNTEMP
@@ -239,7 +250,7 @@ LSTDIR   LDA   #<DIRNAME  ; OPEN DIRECTORY FILE
          JSR   CROUT
          RTS
 
-ASKFILE  LDX   #0         ; ASK WITCH VIDEO FILE TO PLAY
+ASKFILE  LDX   #0         ; ASK WHICH VIDEO FILE TO PLAY
 :LOOP1   INX              ; LOOP TO PRINT 'FILENAME:'
          LDA   PROMPT,X
          JSR   COUT       ; DISPLAYS CHAR IN ACC
@@ -281,10 +292,14 @@ UPDATE   LDA   STATE      ; HANDLES UPDATING, SWITCHING FRAMES
          LDA   #>DATA
          STA   TLOC+1
          JSR   NXTLN
-         JSR   RDTEMP
-         JSR   WRTHR2
          JSR   RDDAT
-         JSR   PROCDAT
+         JSR   WRTHR2
+
+         LDA   CMPTYPE    ; DON'T READ INTO DIFFS BUFFER IF LZ77
+         BNE   :NOREAD
+
+         JSR   RDTEMP
+:NOREAD  JSR   PROCDAT
          LDA   #0
          STA   STATE
          STA   $C055
@@ -309,16 +324,16 @@ TMPLOOP  JSR   RDFILE     ; COPY PART OF VIDEO FILE INTO CACHE
          BEQ   TMPLOOP
 :ENDSUB  RTS
 
-DECOMP   LDA   (RDLO),Y   ; BEGIN PROCESSING LZ77 COMPRESSED FRAME
+DECOMP   LDA   (RDKEYLO),Y ; BEGIN PROCESSING LZ77 COMPRESSED FRAME
          BMI   :NOTFLAG   ; FLAGS ARE IN RANGE 0-127
          TAX              ; STORE LENGTH TO COPY IN X
 
          TYA              ; IF WE'RE OUT OF LITERALS, UPDATE HEADS
          CLC
-         ADC   RDLO
-         STA   RDLO
+         ADC   RDKEYLO
+         STA   RDKEYLO
          BCC   :N1
-         INC   RDHI
+         INC   RDKEYHI
 :N1      TYA
          CLC
          ADC   WRTLO
@@ -329,10 +344,10 @@ DECOMP   LDA   (RDLO),Y   ; BEGIN PROCESSING LZ77 COMPRESSED FRAME
 
          DEX              ; CHECK FOR FLAG THAT INDICATES RUN OF ZEROES
          BNE   :NOTZERS
-         INC   RDLO
+         INC   RDKEYLO
          BNE   :NR
-         INC   RDHI
-:NR      LDA   (RDLO),Y
+         INC   RDKEYHI
+:NR      LDA   (RDKEYLO),Y
          TAX
          LDA   #$80
 
@@ -347,23 +362,23 @@ DECOMP   LDA   (RDLO),Y   ; BEGIN PROCESSING LZ77 COMPRESSED FRAME
          STA   WRTLO
          BCC   :NR2
          INC   WRTHI
-:NR2     INC   RDLO
+:NR2     INC   RDKEYLO
          BNE   :NR3
-         INC   RDHI
+         INC   RDKEYHI
 :NR3     LDY   #0
          JMP   DECOMP
 
 :NOTZERS INX
          BEQ   :ENDSUB
 
-         INC   RDLO
+         INC   RDKEYLO
          BNE   :NOROLL
-         INC   RDHI
+         INC   RDKEYHI
 :NOROLL  LDA   WRTHI
          STA   RDCMPHI
          SEC              ; SUB FROM CURR WRITING POS TO GET TEMP READ LOC
          LDA   WRTLO
-         SBC   (RDLO),Y
+         SBC   (RDKEYLO),Y
          STA   RDCMPLO
          BCS   :LOOP
          DEC   RDCMPHI
@@ -380,57 +395,57 @@ DECOMP   LDA   (RDLO),Y   ; BEGIN PROCESSING LZ77 COMPRESSED FRAME
          STA   WRTLO
          BCC   :NC
          INC   WRTHI
-:NC      INC   RDLO
+:NC      INC   RDKEYLO
          BNE   :NR4
-         INC   RDHI
+         INC   RDKEYHI
 :NR4     LDY   #0
          JMP   DECOMP
 
 :NOTFLAG STA   (WRTLO),Y
          INY
          BNE   DECOMP
-         INC   RDHI
+         INC   RDKEYHI
          INC   WRTHI
          JMP   DECOMP
-:ENDSUB  RTS
+:ENDSUB  INC   RDKEYLO
+         BNE   :SK
+         INC   RDKEYHI
+:SK      RTS
 
-MONMOV   LDA   #$00       ; COPY HIRES2 TO HIRES1 USING MONITOR
-         STA   $3C        ; SOURCE START LO
-         LDA   #$40
-         STA   $3D        ; SOURCE START HI
-         LDA   #$FF
-         STA   $3E        ; SOURCE END LO
-         LDA   #$5F
-         STA   $3F        ; SOURCE END HI
-         LDA   #$00       ; DEST LO
-         STA   $42
-         LDA   #$20       ; DEST HI
-         STA   $43
+LDKEYS   LDA   #$02       ; LOAD KEYFRAMES INTO $7000
+         STA   FLEN       ; FIRST 2 BYTES ARE THE LENGTH TO LOAD
+         LDA   #$00
+         STA   FLEN+1
+         LDA   #$00
+         STA   FLOC
+         LDA   #$70
+         STA   FLOC+1
+         JSR   RDFILE
 
-         JSR   $FE2C
-
+         LDA   $7000
+         STA   FLEN
+         LDA   $7001
+         STA   FLEN+1
+         JSR   RDFILE
          RTS
 
-MYMOV    LDY   #0
-         LDX   #$20
-         LDA   #$40
-         STA   :LOOP+2
-         LDA   #$20
-         STA   :MARK+2
-:LOOP    LDA   HIRES2,Y
-:MARK    STA   HIRES1,Y
-         INY
-         BNE   :LOOP
-         DEX
-         BEQ   :ENDSUB
-         INC   :LOOP+2
-         INC   :MARK+2
-         JMP   :LOOP
-:ENDSUB  RTS
+LDLNS    LDA   #$02       ; LOAD LIST OF UPDATE LENGTHS
+         STA   FLEN       ; FIRST 2 BYTES HOLDS NUMBER OF FRAMES
+         LDA   #$00       ; (+1 FOR END OF MOVIE SYMBOL)
+         STA   FLEN+1
+         LDA   #$00
+         STA   FLOC
+         LDA   #$60
+         STA   FLOC+1
+         JSR   RDFILE
 
-LDLNS    LDA   #$00       ; LOAD LIST OF UPDATE LENGTHS
+         CLC              ; MULTIPLY BY TWO
+         ROL   $6000
+         ROL   $6001
+
+         LDA   $6000
          STA   FLEN
-         LDA   #$01
+         LDA   $6001
          STA   FLEN+1
          LDA   #<LN
          STA   FLOC
@@ -467,17 +482,28 @@ PROCDAT  LDX   CMPTYPE
          STA   WRTLO
          BCC   :NOCAR
          INC   WRTHI
-:NOCAR   INC   RDLO
+:NOCAR   INC   RDLO       ; INC READ HEAD, CHECK TO SKIP UP TO $6000
          BNE   :NORO1
          INC   RDHI
+         LDA   RDHI
+         CMP   #$20
+         BNE   :NORO1
+         LDA   #$60
+         STA   RDHI
 :NORO1   JMP   :LOOP
 :NOGAP   STA   (WRTLO),Y  ; WRITE UPDATED BYTE
          INC   WRTLO
          BNE   :NORO2
          INC   WRTHI
-:NORO2   INC   RDLO
+:NORO2   INC   RDLO       ; INC READ HEAD AND CHECK AGAIN
          BNE   :NORO3
          INC   RDHI
+         LDA   RDHI
+         CMP   #$20
+         BNE   :NORO3
+         LDA   #$60
+         STA   RDHI
+
 :NORO3   JMP   :LOOP
 :ENDSUB  RTS
 
@@ -514,6 +540,10 @@ NXTLN    LDA   (LNLO),Y   ; STORE UPDATE LENGTH IN RDPARST, RESET IF LAST FRAME
          STA   LNLO
          LDA   #>LN
          STA   LNHI
+         LDA   #<KEYS     ; INIT READ BYTES FOR KEYFRAMES
+         STA   RDKEYLO
+         LDA   #>KEYS
+         STA   RDKEYHI
          JSR   RSTTEMP
 :NOTEND  LDY   #0
          LDA   (LNLO),Y
@@ -548,8 +578,9 @@ CRETEMP  JSR   MLI
 OPNFILE  JSR   MLI        ; OPEN VIDEO FILE
          DFB   OPEN
          DW    OPNPARSF
-         BNE   ERROR
-         LDA   OPNPARSF+5  ; STORE REF NUM
+         BEQ   :FINE
+         JMP   ERROR
+:FINE    LDA   OPNPARSF+5  ; STORE REF NUM
          STA   RDPARSF+1
          STA   POSPARSF+1
          STA   CLSPARSF+1
@@ -558,8 +589,9 @@ OPNFILE  JSR   MLI        ; OPEN VIDEO FILE
 OPNTEMP  JSR   MLI        ; OPEN TEMP FILE
          DFB   OPEN
          DW    OPNPARST
-         BNE   ERROR
-         LDA   OPNPARST+5  ; STORE REF NUM
+         BEQ   :FINE
+         JMP   ERROR
+:FINE    LDA   OPNPARST+5  ; STORE REF NUM
          STA   RDPARST+1
          STA   WRPARST+1
          STA   POSPARST+1
@@ -572,7 +604,28 @@ RDFILE   JSR   MLI        ; READ VIDEO FILE
          BNE   ERROR
          RTS
 
-RDTEMP   JSR   MLI        ; READ TEMP FILE
+RDTEMP   LDA   TLEN+1      ; DETERMINE HOW MUCH SHOULD GO ABOVE PAGE 2
+         SEC              ; SUBTRACTING $1000
+         SBC   #$10
+         BMI   :SKIP      ; IF LESS THAN 4KB, LOAD AS IS
+         PHA              ; SAVE HIGH REMAINDER
+         LDA   TLEN
+         PHA              ; SAVE LOW REMAINDER
+         LDA   #$00       ; SAVE FIRST 4K
+         STA   TLEN
+         LDA   #$10
+         STA   TLEN+1
+         JSR   :SKIP
+         LDA   #$00       ; SAVE WHATEVER'S LEFT UP PAST PAGE 2
+         STA   TLOC
+         LDA   #$60
+         STA   TLOC+1
+         PLA
+         STA   TLEN
+         PLA
+         STA   TLEN+1
+
+:SKIP    JSR   MLI        ; READ TEMP FILE
          DFB   READ       ; (SET DKRDLN, DKSTORE FIRST)
          DW    RDPARST
          BNE   ERROR
@@ -645,12 +698,12 @@ CREPARST DFB   7          ; NUMBER OF PARAMETERS FOR 'CREATE'
 
 OPNPARSF DFB   3          ; NUMER OF PARAMETERS FOR 'OPEN'
          DW    FILENAME   ; POINTER TO NAME OF FILE
-         DW    $8400      ; I/O BUFFER LOCATION
+         DW    $B600      ; I/O BUFFER LOCATION
          DS    1          ; REFERENCE NUMBER FOR FILE
 
 OPNPARST DFB   3          ; NUMER OF PARAMETERS FOR 'OPEN'
          DW    TEMPNAME   ; POINTER TO NAME OF FILE
-         DW    $8000      ; I/O BUFFER LOCATION
+         DW    $BA00      ; I/O BUFFER LOCATION
          DS    1          ; REFERENCE NUMBER FOR FILE
 
 

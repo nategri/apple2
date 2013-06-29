@@ -716,25 +716,28 @@ diffFrame = []
 # list of frame update lengths
 updateLengths = []
 
+totalkeylength = 0 # length of all keyframes together
+
 totalgaps = 0
 
 #
-# GENERATE FRAMES TO USE FROM GIF FIL
+# GENERATE FRAMES TO USE FROM GIF FILE
 #
+
+if len(sys.argv) == 1:
+    print "USAGE: hgrdither.py [outputfilename] [inputgif] [brightness (float of order 1.0)] [videosize (normal,small,tiny)]"
+    sys.exit()
 
 numframes = genFrames(sys.argv[2],float(sys.argv[3]),sys.argv[4]) + 1
 print "Number of frames to process: " + str(numframes) + str("\n")
 
 #
-# INITIALIZE BINARY VIDEO FILE
+# INITIALIZE COMPONENTS OF BINARY VIDEO FILE
 #
 
-# fill in blank bytes where lengths will go
-f_binary = open(sys.argv[1],'ab')
-
-for i in range(0,256):
-    zeroByte = 0
-    f_binary.write(struct.pack('B',zeroByte))
+f_lengths = open("blengths",'ab')
+f_diffs = open("bdiffs",'ab')
+f_keys = open("bkeys",'ab')
 
 # create and compress first image in animation
 # this is a keyframe
@@ -744,23 +747,15 @@ saveA2Binary("keyframe",palette)
 keyFrame = compress("keyframe")
 
 for keyByte in keyFrame:
-    f_binary.write(struct.pack('B',keyByte))
+    f_keys.write(struct.pack('B',keyByte))
 
 os.remove("keyframe")
-f_binary.close()
 
-
-f_binary = open(sys.argv[1],'r+b')
-f_binary.seek(0)
 keylength = keyFrame.__len__()
+totalkeylength = totalkeylength + keylength
 keylength = keylength + 0x8000 # high bit on high byte being set tells it to use LZ77 decoding
-loByte = keylength&0x00FF
-hiByte = (keylength>>8)
-f_binary.write(struct.pack('B',loByte))
-f_binary.write(struct.pack('B',hiByte))
-f_binary.close()
 
-f_binary = open(sys.argv[1],'ab')
+updateLengths.append(keylength)
 
 #
 # LOOP THROUGH FRAMES
@@ -818,15 +813,17 @@ for n in range(0,numframes):
         keyFrame = compress(sys.argv[1]+str(n))
         keyframelength = keyFrame.__len__()
 
-        if keyframelength < diffFrame.__len__():
+        if (keyframelength < diffFrame.__len__()) and ((totalkeylength+keyframelength) < 18000): #tweak
+            print "WRITING KEYFRAME"
             for keyByte in keyFrame:
-                f_binary.write(struct.pack('B',keyByte))
+                f_keys.write(struct.pack('B',keyByte))
 
+            totalkeylength = totalkeylength + keyframelength
             updateLengths.append(keyframelength+0x8000)
 
         else:
             for frameByte in diffFrame:
-                f_binary.write(struct.pack('B',frameByte))
+                f_diffs.write(struct.pack('B',frameByte))
 
             updateLengths.append(diffFrame.__len__())
 
@@ -841,17 +838,38 @@ for n in range(0,numframes):
     if n == numframes - 1:
         os.remove('frame'+str(n)+'.png')
 
-f_binary.close()
+#
+# COMPOSE FINAL BINARY FILE
+#
 
-# reopen in correct mode to fill in length section
+# Layout: [number of frames][lengths/encoding of compressed frames][length of all keyframes][keyframes][difference frames]
 
-f_binary = open(sys.argv[1],"r+b")
-f_binary.seek(2) # gotta miss the first keyframe length, right?
+# how many frames are there? (remember to multiply by two in decoder to get length of next section)
+updateLengths.insert(0,len(updateLengths)+1) #the '+1' includes the 'end of movie' mark for looping
+updateLengths.append(0)
+# keys must be prepended with total length of all keys -- same as appending to this part
+updateLengths.append(totalkeylength)
 
+# create list of 16-bit lengths for file
 for i in range(updateLengths.__len__()):
     loByte = updateLengths[i]&0x00FF
     hiByte = updateLengths[i]>>8
-    f_binary.write(struct.pack('B',loByte))
-    f_binary.write(struct.pack('B',hiByte))
+    f_lengths.write(struct.pack('B',loByte))
+    f_lengths.write(struct.pack('B',hiByte))
+
+# close stuff
+f_lengths.close()
+f_keys.close()
+f_diffs.close()
+
+# open actual file we want to make, and then glom it all together
+f_binary = open(sys.argv[1],"wb")
+shutil.copyfileobj(open("blengths",'rb'), f_binary)
+shutil.copyfileobj(open("bkeys",'rb'), f_binary)
+shutil.copyfileobj(open("bdiffs",'rb'), f_binary)
+
+os.remove("blengths")
+os.remove("bkeys")
+os.remove("bdiffs")
 
 f_binary.close()
