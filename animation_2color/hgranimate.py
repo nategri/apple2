@@ -642,7 +642,7 @@ def compress(file):
 
             length = 0
 
-            for j in range(128):
+            for j in range(127):
 
                 if (i+j) >= bytes.__len__():
                     break
