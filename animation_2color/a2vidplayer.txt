@@ -536,6 +536,7 @@ NXTLN    LDA   (LNLO),Y   ; STORE UPDATE LENGTH IN RDPARST, RESET IF LAST FRAME
          CLC
          ADC   (LNLO),Y
          BNE   :NOTEND
+         BCS   :NOTEND
          LDA   #<LN       ; INIT READ BYTES FOR UPDATE LENGTH
          STA   LNLO
          LDA   #>LN
