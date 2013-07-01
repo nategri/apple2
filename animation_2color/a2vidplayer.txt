@@ -339,7 +339,7 @@ DECOMP   LDA   (RDKEYLO),Y ; BEGIN PROCESSING LZ77 COMPRESSED FRAME
          ADC   WRTLO
          STA   WRTLO
          BCC   :N2
-         INC   WRTLO
+         INC   WRTHI
 :N2      LDY   #0
 
          DEX              ; CHECK FOR FLAG THAT INDICATES RUN OF ZEROES
