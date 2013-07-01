@@ -630,10 +630,10 @@ def compress(file):
     i = 0
 
     while i < bytes.__len__():
-        if i < 255:
+        winstart = i - 255 # fucks up on 65 (less severely?)
+
+        if winstart < 0:
             winstart = 0
-        else:
-            winstart = i - 255
 
         maxmatchlen = 0
         maxmatchpt = 0 # this is abosolute! not relative! subtract before you store!
@@ -739,6 +739,8 @@ f_lengths = open("blengths",'ab')
 f_diffs = open("bdiffs",'ab')
 f_keys = open("bkeys",'ab')
 
+#f_debug = open("compdebug",'ab')
+
 # create and compress first image in animation
 # this is a keyframe
 stupidDither(0)
@@ -748,6 +750,9 @@ keyFrame = compress("keyframe")
 
 for keyByte in keyFrame:
     f_keys.write(struct.pack('B',keyByte))
+    #f_debug.write(struct.pack('B',keyByte))
+
+#f_debug.close()
 
 os.remove("keyframe")
 
