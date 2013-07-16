@@ -123,8 +123,19 @@ INIT     JSR   CLRHOME
 
          JSR   LSTDIR
 
-         JSR   ASKFILE
+         LDA   FIRSTRUN   ; IF THIS IS THE FIRST RUN, OFFER TO CHANGE RAM DSK
+         BNE   :SKIP
 
+         LDX   #0
+:LP3     INX
+         LDA   RAMINF,X
+         JSR   COUT
+         CPX   RAMINF
+         BLT   :LP3
+         JSR   CROUT
+         JSR   CROUT
+
+:SKIP    JSR   ASKFILE
 
          JSR   OPNFILE
 
@@ -152,6 +163,9 @@ INIT     JSR   CLRHOME
          JSR   CLSTEMP
 
          JSR   CLSFILE
+
+         LDA   #1         ; DEFINITELY NOT THE FIRST RUN ANYMORE
+         STA   FIRSTRUN   ; SET THIS BOOLEAN
 
          JSR   OPNTEMP    ; OPEN CACHE FILE
 
@@ -291,7 +305,14 @@ ASKFILE  LDX   #0         ; ASK WHICH VIDEO FILE TO PLAY
          LDA   #$A0       ; SET ' :' AS PROMPT
          STA   $33
          JSR   $FD6A      ; APPLE II GETLN ROUTINE
-         STX   FILENAME
+
+         LDA   FIRSTRUN   ; IF THIS IS THE FIRST RUN
+         BNE   :SKIP      ; AND 'ENTER' IS INPUT
+         TXA              ; THEN RUN ROUTINE TO SET RAM DISK
+         BNE   :SKIP
+         JMP   SETRAM
+
+:SKIP    STX   FILENAME
          LDX   #0
 :LOOP2   LDA   $200,X
          STA   FILENAME+1,X
@@ -783,9 +804,10 @@ DESPARST DFB   1
 PFIXPARS DFB   1
          DW    PFIXNAME
 
-PFIXNAME STR   "/ANIMTEST"
-DIRNAME  STR   "/ANIMTEST"
+PFIXNAME STR   "/A2VID"
+DIRNAME  STR   "/A2VID"
 TEMPNAME STR   "/RAM/TEMP"
+         DS    12
 
 TITLE    STR   "      NATEGRI'S APPLE ][ VIDPLAYER"
 INTRO    STR   "AVAILABLE FILES:"
@@ -794,9 +816,11 @@ PROMPT   STR   "SELECTION:"
 STATE    DS    1
 CMPTYPE  DS    1          ; 0 FOR FRAMEDIFF, 1 FOR KEYFRAME
 
+FIRSTRUN DFB   0
+
 FILENAME DS    15
 
-LN       DS    512        ; WHERE FRAME LENGTHS ARE STORED
+LN       DS    450        ; WHERE FRAME LENGTHS ARE STORED
                           ; WARNING: THIS WOULD CLOBBER SPEEDCODE
                           ; ON BIG FILES
 
@@ -908,3 +932,119 @@ SPDMOV   LDY   #0
          BNE   :NOTDONE
          RTS
 :NOTDONE JMP   :LOOP
+
+RAMINF   STR   "[RETURN] CHANGES RAM DSK"
+RPROMPT  STR   "RAM DISK NAME:"
+STATUS   STR   "CACHE FILE SET TO: "
+
+XFILE    STR   "A2VID.SYSTEM"
+
+RAMPOS   EQU   PRGSTART-$2000+TEMPNAME-$800
+
+SETRAM   JSR   CROUT      ; CHANGES RAM DISK NAME
+         LDX   #0
+:LP1     INX
+         LDA   RPROMPT,X  ; PRINT RAM DISK NAME PROMPT
+         JSR   COUT
+         CPX   RPROMPT
+         BLT   :LP1
+
+         JSR   $FD6A      ; APPLE II GETLN ROUTINE
+
+         TXA              ; ADD 5 TO COUNT (FOR '/TEMP')
+         TAY
+         CLC
+         ADC   #5
+         STA   TEMPNAME
+
+         CMP   #20        ; JUST RESTART IF TOO LONG
+         BLT   :SKIP
+         JMP   $800
+
+:SKIP    LDA   #$AF       ;'/'
+         STA   $200,Y
+         INY
+         LDA   #$D4       ;'T'
+         STA   $200,Y
+         INY
+         LDA   #$C5       ;'E'
+         STA   $200,Y
+         INY
+         LDA   #$CD       ;'M'
+         STA   $200,Y
+         INY
+         LDA   #$D0       ;'P'
+         STA   $200,Y
+
+                          ; UPDATE LOCATION IN MEMORY
+
+         LDX   #0
+:LP2     LDA   $200,X
+         STA   TEMPNAME+1,X
+         INX
+         CPX   TEMPNAME
+         BNE   :LP2
+
+         JSR   CROUT
+
+         LDX   #0         ; SAY WHAT NEW CACHE FILE WILL BE
+:LP3     INX
+         LDA   STATUS,X
+         JSR   COUT
+         CPX   STATUS
+         BLT   :LP3
+
+         LDX   #0
+:LP4     INX
+         LDA   TEMPNAME,X
+         JSR   COUT
+         CPX   TEMPNAME
+         BLT   :LP4
+
+                          ; CHANGE ON THE DISK NOW
+
+         LDA   #<XFILE
+         STA   OPNPARSF+1
+         LDA   #>XFILE
+         STA   OPNPARSF+2
+
+         JSR   OPNFILE
+
+         LDA   #<RAMPOS
+         STA   POSPARSF+2
+         LDA   #>RAMPOS
+         STA   POSPARSF+3
+
+         JSR   RSTFILE    ; BAD NAME FOR THE SUB, I KNOW
+
+         LDA   POSPARSF+1 ; REFERENCE NUMBER
+         STA   WRPARST+1  ; 'BORROWING' FROM TEMP FILE FUNCTIONS HERE
+
+         LDA   #<TEMPNAME ; WHERE TO TRANSFER FROM
+         STA   WRPARST+2
+         LDA   #>TEMPNAME
+         STA   WRPARST+3
+
+         LDX   TEMPNAME
+         INX
+         STX   WRPARST+4
+         LDA   #0
+         STA   WRPARST+5
+
+         JSR   WRTEMP
+         JSR   CLSFILE
+
+                          ; PUT EVERYTHING BACK THE WAY IT WAS
+
+         LDA   #<$6000
+         STA   WRPARST+2
+         LDA   #>$6000
+         STA   WRPARST+3
+
+         LDA   #<$1000
+         STA   WRPARST+4
+         LDA   #>$1000
+         STA   WRPARST+5
+
+
+:END     JMP   $800
