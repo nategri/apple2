@@ -31,8 +31,9 @@ USAGE:
 A2VID.sYSTEM (the player):
 
 Works on any Apple II system with a 16kB'language card' equivalent (almost all), and access to 64kB or greater RAM disk.
-Hit enter at prompt to set the name of this disk on your system (set to '/RAM' by default). This is then saved to the disk
-and should only need to be done again if you change systems or hardware.
+Before first playback hit enter at prompt to set the name of this disk on your system (set to '/RAM' by default). This
+is then saved to the disk and should only need to be done again if you change systems or hardware. Type the name of the file
+you wish to play. Hit a key to stop playback and return to the selection screen.
 
 
 hgranimate.py:
@@ -42,14 +43,14 @@ Run as 'python hgranimate.py' from a command prompt. If run with no arguments it
 
 'videosize' adjusts the size of black borders around the animation. This helps with file size. Example files were created with 'small'.
 
-IMPORTANT: Images must first be manually converted to a size of 192x280.
+IMPORTANT: Images must first be manually converted to a size of 280x192.
 ALSO IMPORTANT: Program depends on 'PIL,' the Python Image Library.
 
 FIDDLY NOT-MATURE SOFTWARE THING: The '30' in 'colorDistance > 30' on line 568 is a good thing to tweak for file size/visuals. It has to
 do with which parts of an image are candidates for a refresh in each frame. '15' I think was my standard for a while.
 
 In its current state it throws a bunch of debug stuff at the screen when run. And yes, I'm too lazy to remove it right now.
-(Also it makes a TON of files and deletes them as it goes.)
+(Also: it makes a TON of files and deletes them as it goes.)
 
 Output from this script can be then be loaded onto a disk image (don't forget the '.V' suffix!) with Ciderpress or Whatever.
 
