@@ -102,6 +102,25 @@ PRGSTART EQU   *
 
 INIT     JSR   CLRHOME
 
+         LDX   #0
+         JSR   CROUT
+:LP1     INX              ; PRINT TITLE
+         LDA   TITLE,X
+         JSR   COUT
+         CPX   TITLE
+         BLT   :LP1
+         JSR   CROUT
+         JSR   CROUT
+         JSR   CROUT
+         JSR   CROUT
+
+         LDX   #0         ; PRINT INTRO
+:LP2     INX
+         LDA   INTRO,X
+         JSR   COUT
+         CPX   INTRO
+         BLT   :LP2
+
          JSR   LSTDIR
 
          JSR   ASKFILE
@@ -209,9 +228,23 @@ LSTDIR   LDA   #<DIRNAME  ; OPEN DIRECTORY FILE
          AND   #$0F       ; FIX IT TO WORK CORRECTLY AS STRING
          STA   (RDLO),Y   ; WITH LENGTH PLACED FIRST
 
+         TAY              ; CHECK FOR '.V' SUFFIX
+         LDA   (RDLO),Y
+         CMP   #$56       ; 'V'
+         BNE   :NOV
+         DEY
+         LDA   (RDLO),Y
+         CMP   #$2E
+         BNE   :NOV
+         LDY   #0
+
+
+         JSR   CROUT
+
          LDA   #$A0       ; SPACE BEFORE EACH LISTING
          JSR   COUT
-
+         JSR   COUT
+         JSR   COUT
 
 :LOOP1   INY              ; PRINT FILE ENTRY
          LDA   (RDLO),Y
@@ -220,10 +253,9 @@ LSTDIR   LDA   #<DIRNAME  ; OPEN DIRECTORY FILE
 :MK1     CPY   $F000      ; PLACEHOLDER
          BLT   :LOOP1
 
+:NOV     LDY   #0
          DEX              ; EXIT SUB IF WE'VE HIT THEM ALL
          BEQ   :ENDSUB
-
-         JSR   CROUT
 
 :NACTIVE DEC   TMP        ; SEE IF WE'RE SWITCHING TO NEW BLOCK
          BNE:  :SKIP
@@ -680,7 +712,8 @@ SETPRE   JSR   MLI
 
 ERROR    JSR   PRNTA
          JSR   CROUT
-         JMP   $FA62
+         JMP   $800       ; START OVER, TRY AGAIN
+
                           ;
                           ;
                           ; PARAMETER LISTS FOR FILE OPS
@@ -754,7 +787,9 @@ PFIXNAME STR   "/ANIMTEST"
 DIRNAME  STR   "/ANIMTEST"
 TEMPNAME STR   "/RAM/TEMP"
 
-PROMPT   STR   "FILENAME:"
+TITLE    STR   "      NATEGRI'S APPLE ][ VIDPLAYER"
+INTRO    STR   "AVAILABLE FILES:"
+PROMPT   STR   "SELECTION:"
 
 STATE    DS    1
 CMPTYPE  DS    1          ; 0 FOR FRAMEDIFF, 1 FOR KEYFRAME
