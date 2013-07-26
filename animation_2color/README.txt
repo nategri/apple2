@@ -41,6 +41,8 @@ hgranimate.py:
 Run as 'python hgranimate.py' from a command prompt. If run with no arguments it will generate this 'help' output:
 'USAGE: hgrdither.py [outputfilename] [inputgif] [brightness (float of order 1.0)] [videosize (normal,small,tiny)]'
 
+NOTE: There is now a final (mandatory) option that sets a threshhold for what bytes are updated (range: 0-255). Start this at 30 and lower it if you get animations that are too 'lossy.' Increasing improves compression at the cost of clarity.
+
 'videosize' adjusts the size of black borders around the animation. This helps with file size. Example files were created with 'small'.
 
 IMPORTANT: Images must first be manually converted to a size of 280x192.
@@ -66,7 +68,9 @@ None that I know of! But: Currently the software is limited to playing files wit
 TO DO:
 
 
-Add that 'colorDistance > 30' nonsense as a command line argument.
+Add that 'colorDistance > 30' nonsense as a command line argument. (DONE)
+
+^Put this in the 'help' message output soon D:
 
 Kill all the 'debug' type stuff it pipes to screen when running.
 
