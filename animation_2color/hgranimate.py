@@ -510,7 +510,7 @@ def saveA2Binary(outfile,paletteBit):
     
     return byteList
 
-def updateMask(n):
+def updateMask(n,thresh):
     # compare orginal frame jpegs to determine whether or not a byte is candidate for update
     # returns list of bytes
     # a '1' means that a byte is updateable, '0' otherwise
@@ -565,7 +565,7 @@ def updateMask(n):
             diff = 0
             for k in range(7):
                 colorDistance = sqrt(pow(pixcurr[x+k,y][0]-pixlast[x+k,y][0],2)+pow(pixcurr[x+k,y][1]-pixlast[x+k,y][1],2)+pow(pixcurr[x+k,y][2]-pixlast[x+k,y][2],2))
-                if ( colorDistance > 30 ):
+                if ( colorDistance > thresh ): # was set to 30 'historically'
                     diff = diff + 1
             
             if diff > 1:
@@ -725,7 +725,7 @@ totalgaps = 0
 #
 
 if len(sys.argv) == 1:
-    print "USAGE: hgrdither.py [outputfilename] [inputgif] [brightness (float of order 1.0)] [videosize (normal,small,tiny)]"
+    print "USAGE: hgrdither.py [outputfilename] [inputgif] [brightness (float of order 1.0)] [videosize (normal,small,tiny)] [threshhold 0-255]"
     sys.exit()
 
 numframes = genFrames(sys.argv[2],float(sys.argv[3]),sys.argv[4]) + 1
@@ -784,7 +784,7 @@ for n in range(0,numframes):
     
     if n > 0:
         gap = 0
-        mask = updateMask(n)
+        mask = updateMask(n,int(sys.argv[5]))
         #if n == 1:
             #print mask
         for m in range(currFrame.__len__()):
