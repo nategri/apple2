@@ -93,3 +93,10 @@ LICENSE:
 
 
 I give everyone permission to use and and modify this software, provided they at least give me a shoutout somewhere.
+
+PIL (PYTHON IMAGING LIBRARY) STUFF
+
+The Python Imaging Library (PIL) is
+
+    Copyright © 1997-2011 by Secret Labs AB
+    Copyright © 1995-2011 by Fredrik Lundh
