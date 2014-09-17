@@ -630,7 +630,7 @@ def compress(file):
     i = 0
 
     while i < bytes.__len__():
-        winstart = i - 255 # fucks up on 65 (less severely?)
+        winstart = i - 255 # messes up on 65 (less severely?)
 
         if winstart < 0:
             winstart = 0
